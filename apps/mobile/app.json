@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "Appsy",
+    "slug": "appsy-runtime",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "appsy",
+    "userInterfaceStyle": "light",
+    "platforms": ["ios", "android", "web"],
+    "plugins": ["expo-router"]
+  }
+}

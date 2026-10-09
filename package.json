@@ -7,7 +7,8 @@
     "node": ">=22.12"
   },
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/mobile"
   ],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
@@ -16,5 +17,8 @@
   "devDependencies": {
     "typescript": "^5.9.3",
     "vitest": "^5.0.3"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-win32-x64-msvc": "1.2.13"
   }
 }

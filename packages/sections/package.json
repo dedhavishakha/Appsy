@@ -1,0 +1,22 @@
+{
+  "name": "@appsy/sections",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Appsy's page sections: one folder per section, with its settings manifest now and its phone component from Phase 2.",
+  "type": "module",
+  "exports": {
+    "./manifests": "./src/manifests.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@appsy/app-config": "*"
+  },
+  "peerDependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "zod": "4.6.5"
+  }
+}

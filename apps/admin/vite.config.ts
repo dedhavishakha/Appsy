@@ -52,7 +52,7 @@ export default defineConfig({
   resolve: {
     // Shared packages sit outside this app, next to the root install (React 19 from
     // Phase 2). Always use this app's own copies, so the admin never loads a second React.
-    dedupe: ["react", "react-dom", "zod"],
+    dedupe: ["react", "react-dom", "zod", "@appsy/app-config"],
   },
   plugins: [
     reactRouter(),

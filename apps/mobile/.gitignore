@@ -1,0 +1,10 @@
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Local settings (EXPO_PUBLIC_SETTINGS_URL); .env.example shows the format
+.env
+.env.*
+!.env.example

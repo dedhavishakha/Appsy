@@ -16,6 +16,9 @@ database.sqlite
 .env
 .env.*
 
+# Published settings files in local development (app/models/storage.server.ts)
+/.storage
+
 
 
 

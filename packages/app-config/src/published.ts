@@ -13,7 +13,8 @@ const shopSchema = z.object({
 
 const linksSchema = z.object({
   privacyPolicy: httpsUrl,
-  accountDeletion: httpsUrl,
+  // Present once shoppers can sign in (account feature, Phase 3): Apple 5.1.1(v).
+  accountDeletion: httpsUrl.optional(),
 });
 
 // The file every phone downloads (doc 04, section 2). It's public, so it never holds

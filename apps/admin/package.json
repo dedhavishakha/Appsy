@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@appsy/app-config": "file:../../packages/app-config",
+    "@appsy/sections": "file:../../packages/sections",
     "@prisma/client": "^6.16.3",
     "@react-router/dev": "7.18.2",
     "@react-router/fs-routes": "7.18.2",
