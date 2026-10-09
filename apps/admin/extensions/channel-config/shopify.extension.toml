@@ -1,0 +1,8 @@
+[[extensions]]
+uid = "a9fb22f4-b7e6-a3c8-b385-b685f09bba28fa847509"
+type = "channel_config"
+name = "Appsy channel"
+description = "Lets merchants publish products to their Appsy mobile apps."
+handle = "channel-config"
+# New sales channel apps create their connection with channelCreate instead of the legacy automatic channel.
+create_legacy_channel_on_app_install = false

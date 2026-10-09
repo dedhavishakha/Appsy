@@ -1,0 +1,62 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "63238367b9259cedd09c67c4cc3a2544"
+application_url = "https://example.com"
+embedded = true
+name = "Appsy"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+# write_products and the metaobject scopes serve the template demo page and go when it is removed.
+# read_product_listings + read_publications: sales channel connection and Appsy's publication (spike S1).
+# unauthenticated_*: delegated to Appsy's Storefront token, which merchant apps use (docs/05, section 1).
+# Shopper login (decided 2026-10-08, docs/spikes/S3): Appsy's own client by default plus an optional
+# merchant Headless client. customer_* scopes and [customer_authentication] are added in Phase 3,
+# with Appsy's real HTTPS callback, when the login feature is built.
+scopes = "write_products,write_metaobjects,write_metaobject_definitions,read_product_listings,read_publications,unauthenticated_read_product_listings,unauthenticated_read_product_inventory,unauthenticated_read_product_tags,unauthenticated_read_metaobjects,unauthenticated_read_content,unauthenticated_read_checkouts,unauthenticated_write_checkouts,unauthenticated_read_selling_plans"
+
+[product.metafields.app.demo_info]
+type = "single_line_text_field"
+name = "Demo Source Info"
+description = "Tracks products created by the Shopify app template for development"
+
+  [product.metafields.app.demo_info.access]
+  admin = "merchant_read_write"
+
+[metaobjects.app.example]
+name = "Example"
+description = "An example metaobject definition created by this template"
+
+  [metaobjects.app.example.access]
+  admin = "merchant_read_write"
+
+[metaobjects.app.example.fields.title]
+name = "Title"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.example.fields.description]
+name = "Description"
+type = "multi_line_text_field"
+
+[webhooks]
+api_version = "2027-01"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/scopes_update"
+  topics = [ "app/scopes_update" ]
+
+  # Mandatory for every App Store app (https://shopify.dev/docs/apps/build/compliance/privacy-law-compliance).
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/compliance"
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]
+
+[build]
+automatically_update_urls_on_dev = true

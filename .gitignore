@@ -1,0 +1,12 @@
+# Project documents stay on this computer and are never pushed (decided 2026-10-08).
+/docs/
+
+# Dependencies and local secrets (each app also has its own .gitignore)
+node_modules/
+.env
+.env.*
+!.env.example
+
+# OS and editor files
+.DS_Store
+Thumbs.db

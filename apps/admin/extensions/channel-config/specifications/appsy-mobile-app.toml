@@ -1,0 +1,35 @@
+# Appsy's channel specification: merchants publish products to their Appsy mobile app.
+handle = "appsy-mobile-app"
+label = "Appsy mobile app"
+icon = "icons/appsy.svg"
+productFeedManagement = "automatic"
+
+[capabilities]
+bundles = false
+digitalProducts = false
+subscriptions = false
+combinedListings = false
+unlistedProducts = false
+scheduledPublishing = false
+
+[requirements]
+# Off so that every store can connect, wherever it sells (decided 2026-10-09). With parity on,
+# channelCreate fails unless every country below is a region in one of the store's markets
+# (spike S1, finding F3). With it off, a store with no matching region still gets "a channel
+# subordinate to shop defaults" (channelCreate docs). Apps still show each shopper the store's
+# own Markets prices, because they ask the Storefront API for prices in the shopper's country.
+expectsOnlineStoreParity = false
+# Shopify checkout: the merchant is the seller.
+merchantOfRecord = "merchant"
+
+# Countries where Shopify creates product feeds for a connection, if the store sells there.
+# Every country is added before launch, generated from official country data.
+[[countries]]
+code = "US"
+languages = ["en"]
+currency = "USD"
+
+[[countries]]
+code = "IN"
+languages = ["en", "hi"]
+currency = "INR"

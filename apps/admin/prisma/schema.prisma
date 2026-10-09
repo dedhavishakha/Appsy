@@ -1,0 +1,142 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
+// enough when changing adapters.
+// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+// DATABASE_URL comes from the environment: the git-ignored .env locally, the host's settings in production.
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+// Appsy's own data (docs/04-data-model-and-api.md, section 1). Store data such as
+// products, orders and customers stays in Shopify and is never copied here.
+
+enum ChannelState {
+  pending
+  connected
+  disconnected
+}
+
+enum AppStatus {
+  setup
+  building
+  live
+}
+
+enum ConfigStatus {
+  draft
+  scheduled
+  published
+  archived
+}
+
+enum AssetKind {
+  image
+  video
+  icon
+  splash
+  screenshot
+  featureGraphic
+}
+
+// One row per store that installed Appsy. Kept after an uninstall until Shopify's
+// shop/redact webhook (48 hours later), so a quick reinstall keeps the merchant's work.
+model Shop {
+  id                 String       @id @default(uuid()) @db.Uuid
+  shopDomain         String       @unique
+  shopGid            String       @unique
+  storefrontTokenGid String?
+  // Public by Shopify's design: every phone app gets it in the published settings file.
+  storefrontToken    String?
+  channelState       ChannelState @default(pending)
+  installedAt        DateTime     @default(now())
+  uninstalledAt      DateTime?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  appProject         AppProject?
+}
+
+// The merchant's phone app; one per shop in v1. Its id is also the public app id in
+// CDN paths. The iOS and Android identity fields arrive with the build pipeline (Phase 4).
+model AppProject {
+  id             String          @id @default(uuid()) @db.Uuid
+  shopId         String          @unique @db.Uuid
+  shop           Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  // Google Play allows app names of up to 30 characters.
+  appName        String          @db.VarChar(30)
+  status         AppStatus       @default(setup)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  configVersions ConfigVersion[]
+  assets         Asset[]
+}
+
+// Every saved design, numbered 1, 2, 3… per app. Publishing turns the draft into the
+// published version and archives the previous one, so there's at most one of each.
+model ConfigVersion {
+  id            String       @id @default(uuid()) @db.Uuid
+  appProjectId  String       @db.Uuid
+  appProject    AppProject   @relation(fields: [appProjectId], references: [id], onDelete: Cascade)
+  number        Int
+  status        ConfigStatus @default(draft)
+  // The design, checked by packages/app-config.
+  json          Json
+  schemaVersion Int
+  // Set when published: the file's minRuntime and its key in storage.
+  minRuntime    String?
+  cdnKey        String?
+  // Shopify staff user ID from the session token, or null when Appsy created the version.
+  createdBy     String?
+  scheduledFor  DateTime?
+  publishedAt   DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([appProjectId, number])
+  @@index([appProjectId, status])
+}
+
+// An image or video the merchant uploaded. The file is in storage (a local folder now,
+// S3 later) under storageKey, a content-hashed name.
+model Asset {
+  id           String     @id @default(uuid()) @db.Uuid
+  appProjectId String     @db.Uuid
+  appProject   AppProject @relation(fields: [appProjectId], references: [id], onDelete: Cascade)
+  kind         AssetKind
+  storageKey   String     @unique
+  mime         String
+  width        Int?
+  height       Int?
+  bytes        Int
+  checksum     String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([appProjectId])
+}

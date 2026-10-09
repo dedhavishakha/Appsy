@@ -1,0 +1,20 @@
+{
+  "name": "appsy-workspace",
+  "private": true,
+  "description": "Install 1: Appsy's shared packages (and, from Phase 2, the Expo phone app). The Shopify admin in apps/admin keeps its own install so its React 18 never mixes with Expo's React 19.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run --dir packages"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3"
+  }
+}
