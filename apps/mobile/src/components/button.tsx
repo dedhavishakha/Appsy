@@ -1,15 +1,40 @@
-import { Pressable, StyleSheet, Text } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  type StyleProp,
+  type ViewStyle,
+} from "react-native";
 import { space, useSettings } from "@/lib/app-settings";
+import { Text } from "./text";
 
-// A button in the merchant's style: shape and filled or outline from the theme.
-export function Button({ title, onPress }: { title: string; onPress: () => void }) {
+// A button in the merchant's style: shape and filled or outline from the theme. A secondary
+// button is always outlined, next to a main one.
+export function Button({
+  title,
+  onPress,
+  disabled = false,
+  loading = false,
+  variant = "primary",
+  style,
+}: {
+  title: string;
+  onPress: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+  variant?: "primary" | "secondary";
+  style?: StyleProp<ViewStyle>;
+}) {
   const { colors, buttons } = useSettings().theme;
-  const filled = buttons.style === "filled";
+  const filled = variant === "primary" && buttons.style === "filled";
   const radius = buttons.shape === "pill" ? 999 : buttons.shape === "rounded" ? 8 : 0;
+  const labelColor = filled ? colors.background : colors.brand;
 
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled: disabled || loading, busy: loading }}
+      disabled={disabled || loading}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
@@ -17,11 +42,16 @@ export function Button({ title, onPress }: { title: string; onPress: () => void 
           borderRadius: radius,
           borderColor: colors.brand,
           backgroundColor: filled ? colors.brand : "transparent",
-          opacity: pressed ? 0.7 : 1,
+          opacity: disabled ? 0.45 : pressed ? 0.7 : 1,
         },
+        style,
       ]}
     >
-      <Text style={[styles.label, { color: filled ? colors.background : colors.brand }]}>{title}</Text>
+      {loading ? (
+        <ActivityIndicator color={labelColor} />
+      ) : (
+        <Text style={[styles.label, { color: labelColor }]}>{title}</Text>
+      )}
     </Pressable>
   );
 }
@@ -35,6 +65,8 @@ const styles = StyleSheet.create({
     paddingVertical: space.md,
     borderWidth: 1,
     alignItems: "center",
+    justifyContent: "center",
+    minHeight: 46,
   },
   label: { fontSize: 12, letterSpacing: 1.4, textTransform: "uppercase", fontWeight: "500" },
 });

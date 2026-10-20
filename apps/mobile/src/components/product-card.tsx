@@ -1,8 +1,13 @@
 import { Image } from "expo-image";
-import { StyleSheet, Text, View } from "react-native";
+import { router } from "expo-router";
+import { Pressable, StyleSheet, View } from "react-native";
 import { space, useColors } from "@/lib/app-settings";
-import { formatMoney, imageUrl, isDiscounted } from "@/lib/format";
+import { useMoney } from "@/lib/currency";
+import { imageUrl, isDiscounted } from "@/lib/format";
 import type { ProductCardData } from "@/lib/queries";
+import { useWishlistEnabled, wishlistItem } from "@/lib/wishlist";
+import { Text } from "./text";
+import { WishlistButton } from "./wishlist-button";
 
 // Product imagery is shown 3:4 portrait, as in Seeaash.
 const IMAGE_RATIO = 3 / 4;
@@ -18,43 +23,55 @@ export function ProductCard({
   showPrice?: boolean;
 }) {
   const colors = useColors();
+  const money = useMoney();
+  const wishlist = useWishlistEnabled();
   const price = product.priceRange.minVariantPrice;
   const compareAt = product.compareAtPriceRange.minVariantPrice;
   const variesInPrice = price.amount !== product.priceRange.maxVariantPrice.amount;
   const onSale = isDiscounted(price, compareAt);
 
   return (
-    <View style={{ width }} accessibilityLabel={product.title}>
-      <View style={[styles.image, { width, height: width / IMAGE_RATIO }]}>
-        <Image
-          source={imageUrl(product.featuredImage?.url, width * 2)}
-          alt={product.featuredImage?.altText ?? product.title}
-          contentFit="cover"
-          transition={200}
-          style={StyleSheet.absoluteFill}
-        />
-        {!product.availableForSale && (
-          <View style={[styles.badge, { backgroundColor: colors.background }]}>
-            <Text style={[styles.badgeText, { color: colors.text }]}>Sold out</Text>
-          </View>
-        )}
-      </View>
-      <View style={styles.info}>
-        <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
-          {product.title}
-        </Text>
-        {showPrice && (
-          <View style={styles.priceRow}>
-            <Text style={[styles.price, { color: onSale ? colors.accent : colors.text }]}>
-              {variesInPrice ? "From " : ""}
-              {formatMoney(price)}
-            </Text>
-            {onSale && (
-              <Text style={[styles.compareAt, { color: colors.text }]}>{formatMoney(compareAt)}</Text>
-            )}
-          </View>
-        )}
-      </View>
+    // The heart sits beside the card's link, not inside it, so screen readers reach both.
+    <View style={{ width }}>
+      <Pressable
+        accessibilityRole="link"
+        accessibilityLabel={product.title}
+        onPress={() => router.push(`/products/${product.handle}`)}
+      >
+        <View style={[styles.image, { width, height: width / IMAGE_RATIO }]}>
+          <Image
+            source={imageUrl(product.featuredImage?.url, width * 2)}
+            alt={product.featuredImage?.altText ?? product.title}
+            contentFit="cover"
+            transition={200}
+            style={StyleSheet.absoluteFill}
+          />
+          {!product.availableForSale && (
+            <View style={[styles.badge, { backgroundColor: colors.background }]}>
+              <Text style={[styles.badgeText, { color: colors.text }]}>Sold out</Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.info}>
+          <Text style={[styles.title, { color: colors.text }]} numberOfLines={2}>
+            {product.title}
+          </Text>
+          {showPrice && (
+            <View style={styles.priceRow}>
+              <Text style={[styles.price, { color: onSale ? colors.accent : colors.text }]}>
+                {variesInPrice ? "From " : ""}
+                {money.format(price)}
+              </Text>
+              {onSale && (
+                <Text style={[styles.compareAt, { color: colors.text }]}>
+                  {money.format(compareAt)}
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
+      </Pressable>
+      {wishlist && <WishlistButton item={wishlistItem(product)} />}
     </View>
   );
 }

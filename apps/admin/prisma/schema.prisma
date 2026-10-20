@@ -85,16 +85,35 @@ model Shop {
 // The merchant's phone app; one per shop in v1. Its id is also the public app id in
 // CDN paths. The iOS and Android identity fields arrive with the build pipeline (Phase 4).
 model AppProject {
-  id             String          @id @default(uuid()) @db.Uuid
-  shopId         String          @unique @db.Uuid
-  shop           Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  id              String           @id @default(uuid()) @db.Uuid
+  shopId          String           @unique @db.Uuid
+  shop            Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
   // Google Play allows app names of up to 30 characters.
-  appName        String          @db.VarChar(30)
-  status         AppStatus       @default(setup)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  configVersions ConfigVersion[]
-  assets         Asset[]
+  appName         String           @db.VarChar(30)
+  status          AppStatus        @default(setup)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  configVersions  ConfigVersion[]
+  assets          Asset[]
+  analyticsEvents AnalyticsEvent[]
+}
+
+// A usage event from a merchant's app, sent only after the shopper allows it
+// (packages/app-config/src/analytics.ts). No names, emails or typed text: a random install
+// id, a session id, and product, collection or variant ids. Kept 13 months (your decision,
+// 2026-10-16); daily totals are kept after that. Deleted with the app (shop/redact).
+model AnalyticsEvent {
+  id           BigInt     @id @default(autoincrement())
+  appProjectId String     @db.Uuid
+  appProject   AppProject @relation(fields: [appProjectId], references: [id], onDelete: Cascade)
+  deviceId     String     @db.Uuid
+  sessionId    String
+  name         String
+  props        Json
+  occurredAt   DateTime
+  receivedAt   DateTime   @default(now())
+
+  @@index([appProjectId, occurredAt])
 }
 
 // Every saved design, numbered 1, 2, 3… per app. Publishing turns the draft into the

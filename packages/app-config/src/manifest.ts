@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PAGE_NAMES, type PageName } from "./design";
 import { semver, slug } from "./fields";
 
 export const PACKAGE_KINDS = [
@@ -10,6 +11,10 @@ export const PACKAGE_KINDS = [
 ] as const;
 
 export type PackageKind = (typeof PACKAGE_KINDS)[number];
+
+// A block a new section starts with: its type alone (the block's own defaults), or with
+// settings that replace some of those defaults, like sample text in a Shopify preset.
+export type DefaultBlock = string | { type: string; settings?: Record<string, unknown> };
 
 // Describes one package (doc 04, section 3). `settings` drives the editor form and the
 // publish check; `defaults` fill a newly added section, block or feature.
@@ -25,6 +30,10 @@ export type PackageManifest<Settings extends z.ZodType = z.ZodType> = {
   defaults: z.input<Settings>;
   // Sections only: the block types the editor may place inside.
   acceptsBlocks?: string[];
+  // Sections only: the blocks a newly added section starts with, like a Shopify preset.
+  defaultBlocks?: DefaultBlock[];
+  // Sections only: the pages it can be added to. See sectionPages() when left out.
+  pages?: PageName[];
   partner?: {
     name: string;
     publicSettings: z.ZodType;
@@ -57,7 +66,34 @@ const manifestFieldsSchema = z.object({
   minRuntime: semver,
   plans: z.union([z.literal("all"), z.array(slug).min(1)]),
   acceptsBlocks: z.array(slug).optional(),
+  defaultBlocks: z
+    .array(
+      z.union([
+        slug,
+        z.object({ type: slug, settings: z.record(z.string(), z.unknown()).optional() }),
+      ]),
+    )
+    .max(10)
+    .optional(),
+  pages: z.array(z.enum(PAGE_NAMES)).min(1).optional(),
 });
+
+// The pages a section can go on. Without a list, the Home, Product and Collection pages:
+// the Menu page takes only sections made for the side drawer.
+export function sectionPages(manifest: PackageManifest): PageName[] {
+  return manifest.pages ?? PAGE_NAMES.filter((page) => page !== "menu");
+}
+
+// A section's starting blocks, each as a block type with the settings it starts with.
+export function defaultBlocksOf(
+  manifest: PackageManifest,
+): { type: string; settings: Record<string, unknown> }[] {
+  return (manifest.defaultBlocks ?? []).map((block) =>
+    typeof block === "string"
+      ? { type: block, settings: {} }
+      : { type: block.type, settings: block.settings ?? {} },
+  );
+}
 
 // Every package that a runtime release or the editor knows. It throws on mistakes, so a
 // broken manifest fails the tests instead of reaching merchants.
@@ -77,6 +113,14 @@ export function createCatalog(manifests: PackageManifest[]): Catalog {
     if (manifest.acceptsBlocks && manifest.kind !== "section") {
       problems.push(`${label}: only sections accept blocks`);
     }
+    if (manifest.pages && manifest.kind !== "section") {
+      problems.push(`${label}: only sections are limited to pages`);
+    }
+    for (const { type } of defaultBlocksOf(manifest)) {
+      if (!manifest.acceptsBlocks?.includes(type)) {
+        problems.push(`${label}: starts with "${type}" blocks but doesn't accept them`);
+      }
+    }
     const key = `${manifest.kind}:${manifest.id}`;
     if (byKey.has(key)) problems.push(`${label} is listed twice`);
     byKey.set(key, manifest);
@@ -86,6 +130,14 @@ export function createCatalog(manifests: PackageManifest[]): Catalog {
     for (const blockId of manifest.acceptsBlocks ?? []) {
       if (!byKey.has(`block:${blockId}`)) {
         problems.push(`section "${manifest.id}" accepts unknown block "${blockId}"`);
+      }
+    }
+    // Sample settings must suit the block, or a new section would fail its first save.
+    for (const { type, settings } of defaultBlocksOf(manifest)) {
+      const block = byKey.get(`block:${type}`);
+      const defaults = block?.defaults as Record<string, unknown> | undefined;
+      if (block && !block.settings.safeParse({ ...defaults, ...settings }).success) {
+        problems.push(`section "${manifest.id}" starts with "${type}" settings that don't match it`);
       }
     }
   }

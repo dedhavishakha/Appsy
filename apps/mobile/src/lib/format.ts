@@ -1,18 +1,33 @@
 export type Money = { amount: string; currencyCode: string };
 
-const formatters = new Map<string, Intl.NumberFormat>();
+const formatters = new Map<string, Intl.NumberFormat | null>();
 
 // "₹25,500" or "$19.99": the currency's own format, with Indian digit grouping for rupees.
-export function formatMoney(money: Money): string {
-  let formatter = formatters.get(money.currencyCode);
-  if (!formatter) {
-    formatter = new Intl.NumberFormat(money.currencyCode === "INR" ? "en-IN" : "en", {
-      style: "currency",
-      currency: money.currencyCode,
-    });
-    formatters.set(money.currencyCode, formatter);
+// `whole` drops the decimals (for converted estimates). A phone that can't format a
+// currency shows "AED 120.00" instead.
+export function formatMoney(money: Money, whole = false): string {
+  const { currencyCode } = money;
+  const key = `${currencyCode}${whole ? ":whole" : ""}`;
+  if (!formatters.has(key)) {
+    try {
+      formatters.set(
+        key,
+        new Intl.NumberFormat(currencyCode === "INR" ? "en-IN" : "en", {
+          style: "currency",
+          currency: currencyCode,
+          ...(whole ? { minimumFractionDigits: 0, maximumFractionDigits: 0 } : {}),
+        }),
+      );
+    } catch {
+      formatters.set(key, null);
+    }
   }
-  return formatter.format(Number(money.amount));
+  const amount = Number(money.amount);
+  try {
+    const formatter = formatters.get(key);
+    if (formatter) return formatter.format(amount);
+  } catch {}
+  return `${currencyCode} ${amount.toFixed(whole ? 0 : 2)}`;
 }
 
 export function isDiscounted(price: Money, compareAt: Money | null | undefined) {

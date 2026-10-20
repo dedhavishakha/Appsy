@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  appDesignSchema,
   buildPublishedSettings,
   createDefaultDesign,
+  FONT_OPTIONS,
   migrateDesign,
   publishedSettingsSchema,
+  THEME_PRESETS,
 } from "./index";
 
 // The example file from doc 04, section 2.
@@ -17,6 +20,7 @@ const docExample = {
     storefrontUrl: "https://example.com",
     storefrontToken: "public-storefront-token",
     apiVersion: "2026-07",
+    channelHandle: "appsy-mobile-app-example",
   },
   markets: { defaultCountry: "US", displayCurrencyConversion: false },
   theme: {
@@ -29,7 +33,6 @@ const docExample = {
   navigation: {
     tabs: ["home", "shop", "search", "wishlist", "account"],
     header: { left: ["menu"], right: ["search", "currency", "bag"] },
-    drawerMenu: "main-menu",
   },
   features: {
     wishlist: { enabled: true },
@@ -60,6 +63,9 @@ const docExample = {
       ],
     },
     collection: { sections: [] },
+    menu: {
+      sections: [{ id: "m1", type: "menu-items", settings: { menu: "main-menu" } }],
+    },
   },
   links: {
     privacyPolicy: "https://example.com/policies/privacy-policy",
@@ -92,6 +98,44 @@ describe("published settings file", () => {
     expect(result.data.pages.home.sections[0]?.type).toBe("video-hero");
   });
 
+  it("reads files published before the Menu page", () => {
+    const { menu: _menu, ...pages } = docExample.pages;
+    const older = {
+      ...docExample,
+      navigation: { ...docExample.navigation, drawerMenu: "main-menu" },
+      pages,
+    };
+    const result = publishedSettingsSchema.safeParse(older);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.pages.menu).toEqual({ sections: [] });
+    expect(result.data.navigation).not.toHaveProperty("drawerMenu");
+  });
+
+  it("carries the app's name and the logo's Shopify picture, and reads files without them", () => {
+    expect(publishedSettingsSchema.parse(docExample).app).toBeUndefined();
+    const named = {
+      ...docExample,
+      app: { name: "Seeaash" },
+      theme: {
+        ...docExample.theme,
+        logo: {
+          url: "https://cdn.shopify.com/s/files/1/logo.png",
+          height: 28,
+          id: "gid://shopify/MediaImage/1",
+          aspectRatio: 3.2,
+        },
+      },
+    };
+    const result = publishedSettingsSchema.safeParse(named);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.app).toEqual({ name: "Seeaash" });
+    expect(result.data.theme.logo?.aspectRatio).toBe(3.2);
+    const longName = { ...named, app: { name: "x".repeat(31) } };
+    expect(publishedSettingsSchema.safeParse(longName).success).toBe(false);
+  });
+
   it("rejects files that need a newer schema", () => {
     expect(publishedSettingsSchema.safeParse({ ...docExample, schemaVersion: 2 }).success).toBe(
       false,
@@ -116,19 +160,42 @@ describe("published settings file", () => {
 });
 
 describe("createDefaultDesign", () => {
-  it("adds the ☰ button only when the shop has a menu", () => {
-    const withMenu = createDefaultDesign({ defaultCountry: "IN", drawerMenu: "main-menu" });
-    expect(withMenu.navigation.header.left).toEqual(["menu"]);
-    expect(withMenu.navigation.tabs).toEqual(["home", "shop", "search"]);
+  it("starts with the ☰ button and a side menu waiting for its Shopify menu", () => {
+    const design = createDefaultDesign({ defaultCountry: "IN" });
+    expect(design.navigation.header.left).toEqual(["menu"]);
+    expect(design.navigation.tabs).toEqual(["home", "shop", "search", "wishlist"]);
+    expect(design.features.wishlist?.enabled).toBe(true);
+    expect(design.pages.menu.sections.map((section) => section.type)).toEqual(["menu-items"]);
+  });
 
-    const withoutMenu = createDefaultDesign({ defaultCountry: "IN", drawerMenu: null });
-    expect(withoutMenu.navigation.header.left).toEqual([]);
+  it("starts with the Classic preset", () => {
+    const { theme } = createDefaultDesign({ defaultCountry: "IN" });
+    const [classic] = THEME_PRESETS;
+    expect(theme.preset).toBe("classic");
+    expect(theme).toMatchObject({
+      colors: classic.colors,
+      fonts: classic.fonts,
+      buttons: classic.buttons,
+    });
+  });
+});
+
+describe("THEME_PRESETS", () => {
+  it("are valid themes with their own ids and fonts merchants can pick", () => {
+    const themeSchema = appDesignSchema.shape.theme;
+    const ids = THEME_PRESETS.map((preset) => preset.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const { id, colors, fonts, buttons } of THEME_PRESETS) {
+      expect(themeSchema.safeParse({ preset: id, colors, fonts, buttons }).success).toBe(true);
+      expect(Object.keys(FONT_OPTIONS)).toContain(fonts.heading);
+      expect(Object.keys(FONT_OPTIONS)).toContain(fonts.body);
+    }
   });
 });
 
 describe("buildPublishedSettings", () => {
   it("leaves hidden sections and blocks out of the published file", () => {
-    const design = createDefaultDesign({ defaultCountry: "IN", drawerMenu: "main-menu" });
+    const design = createDefaultDesign({ defaultCountry: "IN" });
     design.pages.home.sections = [
       {
         id: "a",
@@ -148,9 +215,11 @@ describe("buildPublishedSettings", () => {
       publishedAt: new Date("2026-10-09T08:00:00Z"),
       shop: docExample.shop,
       links: docExample.links,
+      app: { name: "Seeaash" },
     });
 
     expect(file.schemaVersion).toBe(1);
+    expect(file.app).toEqual({ name: "Seeaash" });
     expect(file.minRuntime).toBe("1.0.0");
     expect(file.publishedAt).toBe("2026-10-09T08:00:00.000Z");
     expect(file.pages.home.sections).toEqual([
@@ -166,7 +235,7 @@ describe("buildPublishedSettings", () => {
 
 describe("migrateDesign", () => {
   it("returns current-version designs unchanged", () => {
-    const design = createDefaultDesign({ defaultCountry: "US", drawerMenu: null });
+    const design = createDefaultDesign({ defaultCountry: "US" });
     expect(migrateDesign(design, 1)).toBe(design);
   });
 

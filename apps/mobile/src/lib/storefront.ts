@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type { PublishedSettings } from "@appsy/app-config";
 import { useSettings } from "./app-settings";
+import { useCountry } from "./country";
 
 // Seeaash's Storefront client, pointed at the store named in the settings file.
 export async function storefront<T>(
@@ -31,7 +32,7 @@ export async function storefront<T>(
 }
 
 // Store data for a screen or section, priced for the shopper's country (Shopify Markets).
-// Until shoppers can pick a country, that's the design's default country.
+// A new country reloads it in that country's prices and currency.
 export function useStorefront<T>(
   key: readonly unknown[],
   query: string,
@@ -39,10 +40,32 @@ export function useStorefront<T>(
   enabled = true,
 ) {
   const settings = useSettings();
-  const country = settings.markets.defaultCountry;
+  const { country } = useCountry();
   return useQuery({
     queryKey: ["storefront", country, ...key],
     queryFn: () => storefront<T>(settings.shop, query, { ...variables, country }),
+    enabled,
+  });
+}
+
+// A list that loads a page at a time (Shopify's cursor pagination). Changing the key, for
+// a new sort or filter, starts again from the first page while showing the last results.
+export function useStorefrontPages<T>(
+  key: readonly unknown[],
+  query: string,
+  variables: Record<string, unknown>,
+  nextCursor: (page: T) => string | null | undefined,
+  enabled = true,
+) {
+  const settings = useSettings();
+  const { country } = useCountry();
+  return useInfiniteQuery({
+    queryKey: ["storefront", country, ...key],
+    queryFn: ({ pageParam }) =>
+      storefront<T>(settings.shop, query, { ...variables, country, after: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page: T) => nextCursor(page) ?? null,
+    placeholderData: keepPreviousData,
     enabled,
   });
 }

@@ -1,5 +1,6 @@
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { gutter, space, useColors } from "@/lib/app-settings";
+import { Text } from "./text";
 
 // Centred section title, the Seeaash default (docs/03).
 export function SectionHeader({ title }: { title: string }) {

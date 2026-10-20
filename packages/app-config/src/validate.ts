@@ -4,9 +4,10 @@ import {
   KNOWN_TABS,
   PAGE_NAMES,
   type AppDesign,
+  type PageName,
   type SectionInstance,
 } from "./design";
-import type { Catalog, PackageManifest } from "./manifest";
+import { sectionPages, type Catalog, type PackageManifest } from "./manifest";
 
 export const MAX_TABS = 5;
 export const MAX_HEADER_ITEMS_PER_SIDE = 3;
@@ -43,7 +44,7 @@ export function validateDesign(input: unknown, catalog: Catalog): DesignCheck {
 
   const design = parsed.data;
   const issues: DesignIssue[] = [];
-  const { tabs, header, drawerMenu } = design.navigation;
+  const { tabs, header } = design.navigation;
 
   checkIds(tabs, KNOWN_TABS, MAX_TABS, ["navigation", "tabs"], issues);
   if (!tabs.includes("home")) {
@@ -59,12 +60,6 @@ export function validateDesign(input: unknown, catalog: Catalog): DesignCheck {
     );
   }
   const headerItems = [...header.left, ...header.right];
-  if (headerItems.includes("menu") && drawerMenu === null) {
-    issues.push({
-      path: ["navigation", "drawerMenu"],
-      message: "Choose the menu that the ☰ button opens",
-    });
-  }
   for (const id of new Set([...tabs, ...headerItems])) {
     const feature = NEEDS_FEATURE[id];
     if (feature && design.features[feature]?.enabled !== true) {
@@ -100,7 +95,7 @@ export function validateDesign(input: unknown, catalog: Catalog): DesignCheck {
     const ids = new Set<string>();
     pages[name] = {
       sections: sections.map((section, index) =>
-        checkSection(section, [...path, index], catalog, ids, issues),
+        checkSection(section, name, [...path, index], catalog, ids, issues),
       ),
     };
   }
@@ -109,8 +104,41 @@ export function validateDesign(input: unknown, catalog: Catalog): DesignCheck {
   return { success: true, design: { ...design, features, pages } };
 }
 
+// Switches an app-wide feature on or off (Appsy's Settings page) and keeps the design valid.
+// On, its tab joins the tab bar if there's room, before Account; off, the tabs and header
+// buttons that need it go too.
+export function switchFeature(design: AppDesign, feature: string, on: boolean): AppDesign {
+  const needsIt = (id: string) => NEEDS_FEATURE[id] === feature;
+  const { tabs, header } = design.navigation;
+  const tab = KNOWN_TABS.find(needsIt);
+  let nextTabs = on ? tabs : tabs.filter((id) => !needsIt(id));
+  if (on && tab && !tabs.includes(tab) && tabs.length < MAX_TABS) {
+    const account = tabs.indexOf("account");
+    nextTabs =
+      account === -1 ? [...tabs, tab] : [...tabs.slice(0, account), tab, ...tabs.slice(account)];
+  }
+  return {
+    ...design,
+    features: {
+      ...design.features,
+      [feature]: { enabled: on, settings: design.features[feature]?.settings ?? {} },
+    },
+    navigation: {
+      ...design.navigation,
+      tabs: nextTabs,
+      header: on
+        ? header
+        : {
+            left: header.left.filter((id) => !needsIt(id)),
+            right: header.right.filter((id) => !needsIt(id)),
+          },
+    },
+  };
+}
+
 function checkSection(
   section: SectionInstance,
+  page: PageName,
   path: IssuePath,
   catalog: Catalog,
   ids: Set<string>,
@@ -118,6 +146,9 @@ function checkSection(
 ): SectionInstance {
   checkUniqueId(section.id, path, ids, issues);
   const manifest = catalog.get("section", section.type);
+  if (manifest && !sectionPages(manifest).includes(page)) {
+    issues.push({ path, message: `"${manifest.title}" can't go on the ${page} page` });
+  }
   const settings = checkSettings(
     manifest,
     section.settings,

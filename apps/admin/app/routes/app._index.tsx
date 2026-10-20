@@ -7,7 +7,15 @@ import type {
 import { useFetcher, useLoaderData } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
+import { EDITOR_WINDOW_ID, EditorWindow } from "../components/editor-window";
+import {
+  formatCount,
+  formatMoney,
+  MetricsCard,
+  percentChange,
+} from "../components/metrics-card";
 import { authenticate } from "../shopify.server";
+import { hasOrdersAccess, loadReport } from "../models/analytics.server";
 import { ensureShopSetup } from "../models/shop.server";
 import {
   connectChannel,
@@ -19,11 +27,19 @@ import {
 // channel apps (App Store requirements 5.7.x; docs/01, Phase 1).
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { admin, session, scopes } = await authenticate.admin(request);
   const shop = await ensureShopSetup(admin, session.shop);
-  const channel = await loadChannel(admin, shop);
+  const ordersAccess = await hasOrdersAccess(scopes);
+  const [channel, week] = await Promise.all([
+    loadChannel(admin, shop),
+    // The page still loads if the numbers can't be read.
+    loadReport(admin, shop.appProject.id, 7, ordersAccess).catch((error) => {
+      console.error(`Analytics for ${session.shop}:`, error);
+      return null;
+    }),
+  ]);
 
-  return { channel };
+  return { channel, week };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -41,14 +57,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const channel = await loadChannel(admin, shop);
     return {
       intent,
-      errors: channel ? await disconnectChannel(admin, shop.id, channel.id) : [],
+      errors: channel
+        ? await disconnectChannel(admin, shop.id, channel.id)
+        : [],
     };
   }
   return { intent, errors: [`Unknown action "${intent}"`] };
 };
 
 export default function Home() {
-  const { channel } = useLoaderData<typeof loader>();
+  const { channel, week } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
 
@@ -62,11 +80,17 @@ export default function Home() {
     : "0";
 
   useEffect(() => {
-    if (fetcher.state !== "idle" || !fetcher.data || fetcher.data.errors.length > 0) {
+    if (
+      fetcher.state !== "idle" ||
+      !fetcher.data ||
+      fetcher.data.errors.length > 0
+    ) {
       return;
     }
     shopify.toast.show(
-      fetcher.data.intent === "connect" ? "Appsy connected" : "Appsy disconnected",
+      fetcher.data.intent === "connect"
+        ? "Appsy connected"
+        : "Appsy disconnected",
     );
   }, [fetcher.state, fetcher.data, shopify]);
 
@@ -150,8 +174,8 @@ export default function Home() {
 
           {/* Eligibility, shown in the account section (5.7.17). */}
           <s-paragraph color="subdued">
-            Any Shopify store can connect. To publish your app, you&apos;ll need your
-            own Apple Developer and Google Play developer accounts.
+            Any Shopify store can connect. To publish your app, you&apos;ll need
+            your own Apple Developer and Google Play developer accounts.
           </s-paragraph>
         </s-stack>
 
@@ -170,11 +194,84 @@ export default function Home() {
           >
             Disconnect
           </s-button>
-          <s-button slot="secondary-actions" commandFor="disconnect-modal" command="--hide">
+          <s-button
+            slot="secondary-actions"
+            commandFor="disconnect-modal"
+            command="--hide"
+          >
             Cancel
           </s-button>
         </s-modal>
       </s-section>
+
+      {/* The editor opens in Shopify's App window, only when the merchant asks. */}
+      <s-section heading="Design your app">
+        <s-stack gap="base">
+          <s-paragraph>
+            Choose what your app&apos;s Home, Product and Collection pages show,
+            and see each change on a phone as you make it.
+          </s-paragraph>
+          <s-stack direction="inline">
+            <s-button
+              variant="primary"
+              commandFor={EDITOR_WINDOW_ID}
+              command="--show"
+            >
+              Design your app
+            </s-button>
+          </s-stack>
+        </s-stack>
+        <EditorWindow />
+      </s-section>
+
+      {/* This week at a glance; the Analytics page has the rest (Built for Shopify asks for
+          reporting on the app's home). */}
+      {week && (
+        <s-stack gap="small">
+          <s-grid gridTemplateColumns="1fr auto" alignItems="center">
+            <s-heading>Your app in the last 7 days</s-heading>
+            <s-link href="/app/analytics?days=7">View analytics</s-link>
+          </s-grid>
+          <MetricsCard
+            href="/app/analytics?days=7"
+            metrics={[
+              {
+                label: "Sessions",
+                value: formatCount(week.current.sessions),
+                change: percentChange(
+                  week.current.sessions,
+                  week.previous.sessions,
+                ),
+              },
+              {
+                label: "Added to bag",
+                value: formatCount(week.current.addedToBag),
+                change: percentChange(
+                  week.current.addedToBag,
+                  week.previous.addedToBag,
+                ),
+              },
+              week.sales.available
+                ? {
+                    label: "Sales",
+                    value: formatMoney(week.sales.amount, week.sales.currency),
+                    note: `${formatCount(week.sales.orders)} ${week.sales.orders === 1 ? "order" : "orders"}`,
+                    change: week.previousSales.available
+                      ? percentChange(
+                          week.sales.amount,
+                          week.previousSales.amount,
+                        )
+                      : null,
+                  }
+                : {
+                    label: "Sales",
+                    value: "—",
+                    note: "Appears after Shopify reviews Appsy",
+                  },
+            ]}
+          />
+        </s-stack>
+      )}
 
       {/* Publishing section: a card in the annotated layout, with the published-product count (5.7.4, 5.7.9). */}
       {connected && (
@@ -187,8 +284,8 @@ export default function Home() {
               <s-stack gap="small">
                 <s-heading>Product publishing</s-heading>
                 <s-paragraph color="subdued">
-                  Products you make available to the Appsy sales channel appear in
-                  your app.
+                  Products you make available to the Appsy sales channel appear
+                  in your app.
                 </s-paragraph>
               </s-stack>
             </s-grid-item>
@@ -197,10 +294,12 @@ export default function Home() {
                 <s-stack gap="base">
                   <s-paragraph>
                     <s-text type="strong">{countText}</s-text>{" "}
-                    {count?.count === 1 ? "product is" : "products are"} available
-                    in your app.
+                    {count?.count === 1 ? "product is" : "products are"}{" "}
+                    available in your app.
                   </s-paragraph>
-                  <s-link href="shopify://admin/products">Manage products</s-link>
+                  <s-link href="shopify://admin/products">
+                    Manage products
+                  </s-link>
                 </s-stack>
               </s-section>
             </s-grid-item>

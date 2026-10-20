@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Animated, Easing, StyleSheet, Text, View } from "react-native";
+import { Animated, Easing, StyleSheet, View } from "react-native";
 import type { z } from "zod";
 import type { announcementBar } from "@appsy/sections/manifests";
+import { Text } from "@/components/text";
 import { gutter, space } from "@/lib/app-settings";
 
 type Settings = z.output<typeof announcementBar.settings>;
@@ -51,16 +52,18 @@ function Marquee({ text, style }: { text: string; style: object[] }) {
         setWidths((current) => ({ ...current, bar }));
       }}
     >
-      <Animated.Text
-        numberOfLines={1}
+      {/* The text moves inside a view, so it keeps the merchant's font (components/text.tsx). */}
+      <Animated.View
         onLayout={(event) => {
           const textWidth = event.nativeEvent.layout.width;
           setWidths((current) => ({ ...current, text: textWidth }));
         }}
-        style={[...style, styles.marqueeText, { transform: [{ translateX: offset }] }]}
+        style={[styles.marqueeText, { transform: [{ translateX: offset }] }]}
       >
-        {text}
-      </Animated.Text>
+        <Text numberOfLines={1} style={style}>
+          {text}
+        </Text>
+      </Animated.View>
     </View>
   );
 }

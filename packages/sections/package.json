@@ -17,6 +17,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@appsy/blocks": "*",
     "zod": "4.6.5"
   }
 }

@@ -12,7 +12,8 @@
   ],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "vitest run --dir packages"
+    "test": "vitest run --dir packages",
+    "preview:build": "npm run build:preview --workspace @appsy/mobile"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

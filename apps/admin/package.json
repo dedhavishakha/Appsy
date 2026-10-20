@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "build": "react-router build",
-    "predev": "node scripts/local-db.mjs start",
+    "predev": "node scripts/local-db.mjs start && node ../mobile/scripts/build-preview.mjs --if-stale",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
@@ -29,6 +29,8 @@
   },
   "dependencies": {
     "@appsy/app-config": "file:../../packages/app-config",
+    "@appsy/blocks": "file:../../packages/blocks",
+    "@appsy/features": "file:../../packages/features",
     "@appsy/sections": "file:../../packages/sections",
     "@prisma/client": "^6.16.3",
     "@react-router/dev": "7.18.2",

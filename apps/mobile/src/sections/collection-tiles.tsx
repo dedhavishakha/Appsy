@@ -1,9 +1,10 @@
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, View } from "react-native";
 import type { z } from "zod";
 import type { collectionTiles } from "@appsy/sections/manifests";
 import { SectionHeader } from "@/components/section-header";
+import { Text } from "@/components/text";
 import { gutter, space, useColors } from "@/lib/app-settings";
 import { imageUrl } from "@/lib/format";
 import {

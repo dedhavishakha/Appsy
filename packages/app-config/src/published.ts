@@ -9,13 +9,23 @@ const shopSchema = z.object({
   // Public by Shopify's design: it can only read what the merchant published to Appsy.
   storefrontToken: z.string().min(1),
   apiVersion: shopifyApiVersion,
+  // Carts carry sourceName "channel:<handle>", which credits orders to Appsy's channel
+  // (spike S2). Optional, so files published before it existed still load.
+  channelHandle: z.string().min(1).optional(),
 });
 
 const linksSchema = z.object({
   privacyPolicy: httpsUrl,
   // Present once shoppers can sign in (account feature, Phase 3): Apple 5.1.1(v).
   accountDeletion: httpsUrl.optional(),
+  // Where the app sends usage events once the shopper allows it (analytics.ts). Files
+  // published before analytics, and the editor's preview, have none, so nothing is sent.
+  events: httpsUrl.optional(),
 });
+
+// The app's own identity, from Appsy's setup guide. Its name shows in the header when there's
+// no logo. Optional, so files published before it existed still load.
+const appSchema = z.object({ name: z.string().min(1).max(30) });
 
 // The file every phone downloads (doc 04, section 2). It's public, so it never holds
 // secrets. A phone whose runtime is older than `minRuntime` keeps its last good file.
@@ -26,12 +36,14 @@ export const publishedSettingsSchema = z.object({
   minRuntime: semver,
   shop: shopSchema,
   links: linksSchema,
+  app: appSchema.optional(),
   ...appDesignSchema.shape,
 });
 
 export type PublishedSettings = z.output<typeof publishedSettingsSchema>;
 export type ShopDetails = z.output<typeof shopSchema>;
 export type AppLinks = z.output<typeof linksSchema>;
+export type AppIdentity = z.output<typeof appSchema>;
 
 // Builds the file for one publish. Hidden sections and blocks stay in the draft only.
 export function buildPublishedSettings(input: {
@@ -40,6 +52,7 @@ export function buildPublishedSettings(input: {
   publishedAt: Date;
   shop: ShopDetails;
   links: AppLinks;
+  app?: AppIdentity;
 }): PublishedSettings {
   const { design } = input;
   const pages = Object.fromEntries(
@@ -52,6 +65,7 @@ export function buildPublishedSettings(input: {
     minRuntime: MIN_RUNTIME,
     shop: input.shop,
     links: input.links,
+    app: input.app,
     ...design,
     pages,
   });

@@ -7,40 +7,25 @@ name = "Appsy"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-# write_products and the metaobject scopes serve the template demo page and go when it is removed.
+# read_products: the editor's product and collection pickers, and the names it shows for them.
 # read_product_listings + read_publications: sales channel connection and Appsy's publication (spike S1).
 # unauthenticated_*: delegated to Appsy's Storefront token, which merchant apps use (docs/05, section 1).
+# read_files: pictures merchants choose in the editor come from the store's own Shopify Files
+# (Appsy reads a file's address and status; it never uploads, so no write_files).
+# read_online_store_navigation: the editor lists the store's menus for the app's side menu; phones
+# then read the chosen menu with the Storefront token (unauthenticated_read_content).
 # Shopper login (decided 2026-10-08, docs/spikes/S3): Appsy's own client by default plus an optional
 # merchant Headless client. customer_* scopes and [customer_authentication] are added in Phase 3,
 # with Appsy's real HTTPS callback, when the login feature is built.
-scopes = "write_products,write_metaobjects,write_metaobject_definitions,read_product_listings,read_publications,unauthenticated_read_product_listings,unauthenticated_read_product_inventory,unauthenticated_read_product_tags,unauthenticated_read_metaobjects,unauthenticated_read_content,unauthenticated_read_checkouts,unauthenticated_write_checkouts,unauthenticated_read_selling_plans"
-
-[product.metafields.app.demo_info]
-type = "single_line_text_field"
-name = "Demo Source Info"
-description = "Tracks products created by the Shopify app template for development"
-
-  [product.metafields.app.demo_info.access]
-  admin = "merchant_read_write"
-
-[metaobjects.app.example]
-name = "Example"
-description = "An example metaobject definition created by this template"
-
-  [metaobjects.app.example.access]
-  admin = "merchant_read_write"
-
-[metaobjects.app.example.fields.title]
-name = "Title"
-type = "single_line_text_field"
-required = true
-
-[metaobjects.app.example.fields.description]
-name = "Description"
-type = "multi_line_text_field"
+# read_only_own_orders (analytics' orders and sales; it reads only the orders the channel created)
+# isn't listed here: App Store requirement 5.7.1 says Shopify adds it during review, and the CLI
+# refuses it in this file ("These scopes are invalid", tried on the development store 2026-10-16).
+scopes = "read_products,read_product_listings,read_publications,read_files,read_online_store_navigation,unauthenticated_read_product_listings,unauthenticated_read_product_inventory,unauthenticated_read_product_tags,unauthenticated_read_metaobjects,unauthenticated_read_content,unauthenticated_read_checkouts,unauthenticated_write_checkouts,unauthenticated_read_selling_plans"
 
 [webhooks]
-api_version = "2027-01"
+# A stable version, the same as the rest of the app (app/shopify.server.ts); 2027-01 is a
+# release candidate (https://shopify.dev/docs/api/usage/versioning).
+api_version = "2026-07"
 
   [[webhooks.subscriptions]]
   uri = "/webhooks/app/uninstalled"

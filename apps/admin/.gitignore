@@ -19,6 +19,9 @@ database.sqlite
 # Published settings files in local development (app/models/storage.server.ts)
 /.storage
 
+# The editor's phone preview, built from apps/mobile (routes/preview.$.tsx)
+/.preview
+
 
 
 

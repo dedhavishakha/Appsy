@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { countryCode, hexColor, httpsUrl, nodeId, slug } from "./fields";
+import { countryCode, hexColor, httpsUrl, nodeId, shopifyGid, slug } from "./fields";
+import { THEME_PRESETS } from "./theme";
 
 // What a merchant designs in the editor. The published settings file (published.ts) is
 // this design plus the details Appsy adds at publish time.
@@ -18,7 +19,8 @@ export const KNOWN_HEADER_ITEMS = [
   "wishlist",
   "account",
 ] as const;
-export const PAGE_NAMES = ["home", "product", "collection"] as const;
+// "menu" is the side drawer that the ☰ button opens: its sections are what it lists.
+export const PAGE_NAMES = ["home", "product", "collection", "menu"] as const;
 
 export type Tab = (typeof KNOWN_TABS)[number];
 export type HeaderItem = (typeof KNOWN_HEADER_ITEMS)[number];
@@ -56,6 +58,8 @@ const fontName = z.string().min(1).max(64);
 export const appDesignSchema = z.object({
   markets: z.object({
     defaultCountry: countryCode,
+    // Currency conversion (Appsy's Settings page): shoppers pick any currency and prices are
+    // converted for display with daily exchange rates; checkout charges the market's currency.
     displayCurrencyConversion: z.boolean().default(false),
   }),
   theme: z.object({
@@ -72,23 +76,31 @@ export const appDesignSchema = z.object({
       style: z.enum(["filled", "outline"]).catch("filled"),
     }),
     logo: z
-      .object({ url: httpsUrl, height: z.number().int().min(16).max(64) })
+      .object({
+        url: httpsUrl,
+        // How tall the logo shows in the header, in points.
+        height: z.number().int().min(16).max(64),
+        // The picture in Shopify Files, and its width over height, so it's sized right.
+        id: shopifyGid("MediaImage").optional(),
+        aspectRatio: z.number().positive().max(20).optional(),
+      })
       .optional(),
   }),
   navigation: z.object({
     tabs: z.array(z.string()).min(1),
+    // The ☰ button ("menu") opens the side menu, which always ends with Privacy choices.
     header: z.object({
       left: z.array(z.string()),
       right: z.array(z.string()),
     }),
-    // Handle of the Shopify menu that the ☰ button opens, or null for no menu.
-    drawerMenu: z.string().min(1).max(255).nullable(),
   }),
   features: z.record(z.string(), featureSchema).default({}),
   pages: z.object({
     home: pageSchema,
     product: pageSchema,
     collection: pageSchema,
+    // Designs saved before the Menu page existed have none.
+    menu: pageSchema.default({ sections: [] }),
   }),
 });
 
@@ -98,34 +110,62 @@ export type SectionInstance = z.output<typeof sectionSchema>;
 export type BlockInstance = z.output<typeof blockSchema>;
 export type FeatureEntry = z.output<typeof featureSchema>;
 
-// A new merchant's starting design, using the Seeaash defaults (doc 03). Theme presets
-// replace it in Phase 3.
-export function createDefaultDesign(shop: {
-  defaultCountry: string;
-  drawerMenu: string | null;
-}): AppDesign {
+// The Product, Collection and Menu pages every design starts with, like Shopify's "Product
+// information". Phones also use the Product and Collection ones for designs published
+// before templates existed. Settings fill in from each package's defaults.
+export function defaultPageSections(
+  page: "product" | "collection" | "menu",
+): SectionInstance[] {
+  if (page === "collection") {
+    return [{ id: "product-grid", type: "product-grid", settings: {}, blocks: [] }];
+  }
+  // The merchant picks which Shopify menu it lists.
+  if (page === "menu") {
+    return [{ id: "menu-items", type: "menu-items", settings: {}, blocks: [] }];
+  }
+  const blocks = [
+    "product-title",
+    "product-price",
+    "variant-picker",
+    "buy-buttons",
+    "product-description",
+  ];
+  return [
+    {
+      id: "product-details",
+      type: "product-details",
+      settings: {},
+      blocks: blocks.map((type) => ({ id: type, type, settings: {} })),
+    },
+  ];
+}
+
+// A new merchant's starting design: the Classic preset, Seeaash's look (doc 03).
+export function createDefaultDesign(shop: { defaultCountry: string }): AppDesign {
+  const classic = THEME_PRESETS[0];
   return appDesignSchema.parse({
     markets: { defaultCountry: shop.defaultCountry },
     theme: {
-      preset: "classic",
-      colors: {
-        brand: "#42523D",
-        background: "#FFFFFF",
-        text: "#1F2937",
-        accent: "#C2410C",
-      },
-      fonts: { heading: "Jost", body: "Montserrat" },
-      buttons: { shape: "rounded", style: "filled" },
+      preset: classic.id,
+      colors: classic.colors,
+      fonts: classic.fonts,
+      buttons: classic.buttons,
     },
     navigation: {
-      // The Wishlist and Account tabs arrive with those features (Phase 3).
-      tabs: ["home", "shop", "search"],
+      // The Account tab arrives with shopper sign-in (Phase 3).
+      tabs: ["home", "shop", "search", "wishlist"],
       header: {
-        left: shop.drawerMenu ? ["menu"] : [],
+        left: ["menu"],
         right: ["search", "currency", "bag"],
       },
-      drawerMenu: shop.drawerMenu,
     },
-    pages: { home: {}, product: {}, collection: {} },
+    // On for new stores (your decision, 2026-10-16); Appsy's Settings page switches it.
+    features: { wishlist: { enabled: true, settings: {} } },
+    pages: {
+      home: {},
+      product: { sections: defaultPageSections("product") },
+      collection: { sections: defaultPageSections("collection") },
+      menu: { sections: defaultPageSections("menu") },
+    },
   });
 }

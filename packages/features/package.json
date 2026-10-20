@@ -1,0 +1,24 @@
+{
+  "name": "@appsy/features",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Appsy's app-wide features (wishlist, and later account, push, reviews, analytics): one folder per feature, with its settings manifest.",
+  "type": "module",
+  "exports": {
+    "./manifests": "./src/manifests.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@appsy/app-config": "*"
+  },
+  "peerDependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@appsy/blocks": "*",
+    "@appsy/sections": "*",
+    "zod": "4.6.5"
+  }
+}

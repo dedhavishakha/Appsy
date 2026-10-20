@@ -6,7 +6,16 @@
     "orientation": "portrait",
     "scheme": "appsy",
     "userInterfaceStyle": "light",
-    "platforms": ["ios", "android", "web"],
-    "plugins": ["expo-router"]
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "plugins": [
+      "expo-router",
+      "expo-web-browser",
+      "expo-localization",
+      "expo-font"
+    ]
   }
 }

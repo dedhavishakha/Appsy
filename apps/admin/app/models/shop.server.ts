@@ -66,10 +66,9 @@ export async function ensureShopSetup(
       });
       if (shop.appProject) return { ...shop, appProject: shop.appProject };
 
+      // The merchant picks the side menu's Shopify menu in the editor.
       const design = createDefaultDesign({
         defaultCountry: data.shop.shopAddress.countryCodeV2 ?? "US",
-        // Choosing the ☰ menu comes with the navigation editor (Phase 3).
-        drawerMenu: null,
       });
       const appProject = await tx.appProject.create({
         data: {

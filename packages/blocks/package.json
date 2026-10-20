@@ -1,0 +1,22 @@
+{
+  "name": "@appsy/blocks",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Appsy's blocks: small parts merchants place inside sections, like Shopify theme blocks. One folder per block, with its settings manifest.",
+  "type": "module",
+  "exports": {
+    "./manifests": "./src/manifests.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@appsy/app-config": "*"
+  },
+  "peerDependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "zod": "4.6.5"
+  }
+}

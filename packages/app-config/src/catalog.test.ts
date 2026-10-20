@@ -5,6 +5,7 @@ import {
   createDefaultDesign,
   defineManifest,
   shopifyGid,
+  switchFeature,
   validateDesign,
   type AppDesign,
 } from "./index";
@@ -52,10 +53,25 @@ const wishlist = defineManifest({
   defaults: {},
 });
 
-const catalog = createCatalog([productRow, imageBanner, reviewStars, wishlist]);
+const productDetails = defineManifest({
+  ...base,
+  id: "product-details",
+  kind: "section",
+  title: "Product details",
+  settings: z.object({}),
+  defaults: {},
+  pages: ["product"],
+});
+
+const catalog = createCatalog([productRow, imageBanner, productDetails, reviewStars, wishlist]);
 
 function designWith(change: (design: AppDesign) => void): AppDesign {
-  const design = createDefaultDesign({ defaultCountry: "IN", drawerMenu: "main-menu" });
+  const design = createDefaultDesign({ defaultCountry: "IN" });
+  // The default Product, Collection and Menu pages use packages this test catalog doesn't
+  // have; packages/sections checks them against the real catalog.
+  design.pages.product.sections = [];
+  design.pages.collection.sections = [];
+  design.pages.menu.sections = [];
   change(design);
   return design;
 }
@@ -69,8 +85,6 @@ describe("validateDesign", () => {
   it("accepts a valid design and fills in package defaults", () => {
     const result = validateDesign(
       designWith((design) => {
-        design.features.wishlist = { enabled: true, settings: {} };
-        design.navigation.tabs.push("wishlist");
         design.pages.home.sections.push({
           id: "s1",
           type: "product-row",
@@ -118,6 +132,45 @@ describe("validateDesign", () => {
     expect(issues).toContain(`"Image banner" doesn't accept "review-stars" blocks`);
   });
 
+  it("keeps sections on the pages they're made for", () => {
+    const onHome = messages(
+      designWith((design) => {
+        design.pages.home.sections.push({
+          id: "s1",
+          type: "product-details",
+          settings: {},
+          blocks: [],
+        });
+      }),
+    );
+    expect(onHome).toContain(`"Product details" can't go on the home page`);
+
+    const onProduct = messages(
+      designWith((design) => {
+        design.pages.product.sections.push({
+          id: "s1",
+          type: "product-details",
+          settings: {},
+          blocks: [],
+        });
+      }),
+    );
+    expect(onProduct).toEqual([]);
+
+    // Sections without a page list stay out of the side menu.
+    const inMenu = messages(
+      designWith((design) => {
+        design.pages.menu.sections.push({
+          id: "s1",
+          type: "image-banner",
+          settings: {},
+          blocks: [],
+        });
+      }),
+    );
+    expect(inMenu).toContain(`"Image banner" can't go on the menu page`);
+  });
+
   it("rejects an id used twice on a page", () => {
     const issues = messages(
       designWith((design) => {
@@ -157,6 +210,7 @@ describe("validateDesign", () => {
   it("checks tabs and header buttons", () => {
     const tooMany = messages(
       designWith((design) => {
+        design.features = {};
         design.navigation.tabs = ["home", "shop", "search", "wishlist", "account", "shop"];
       }),
     );
@@ -171,13 +225,32 @@ describe("validateDesign", () => {
     );
     expect(noHome).toContain("The Home tab is required");
     expect(noHome).toContain('Unknown item "rewards"');
+  });
+});
 
-    const noMenu = messages(
-      designWith((design) => {
-        design.navigation.drawerMenu = null;
-      }),
-    );
-    expect(noMenu).toContain("Choose the menu that the ☰ button opens");
+describe("switchFeature", () => {
+  it("takes the wishlist out of the tabs and header when it's switched off", () => {
+    const design = designWith((design) => {
+      design.navigation.header.right = ["search", "wishlist", "bag"];
+    });
+    const off = switchFeature(design, "wishlist", false);
+    expect(off.features.wishlist).toEqual({ enabled: false, settings: {} });
+    expect(off.navigation.tabs).toEqual(["home", "shop", "search"]);
+    expect(off.navigation.header.right).toEqual(["search", "bag"]);
+    expect(messages(off)).toEqual([]);
+  });
+
+  it("puts the tab back before Account", () => {
+    const design = designWith((design) => {
+      design.features = {};
+      design.navigation.tabs = ["home", "search", "account"];
+    });
+    expect(switchFeature(design, "wishlist", true).navigation.tabs).toEqual([
+      "home",
+      "search",
+      "wishlist",
+      "account",
+    ]);
   });
 });
 
@@ -190,6 +263,32 @@ describe("createCatalog", () => {
     expect(() => createCatalog([productRow])).toThrow('accepts unknown block "review-stars"');
     expect(() => createCatalog([{ ...reviewStars, acceptsBlocks: ["review-stars"] }])).toThrow(
       "only sections accept blocks",
+    );
+    expect(() => createCatalog([{ ...reviewStars, pages: ["home"] }])).toThrow(
+      "only sections are limited to pages",
+    );
+    expect(() =>
+      createCatalog([{ ...imageBanner, defaultBlocks: ["review-stars"] }, reviewStars]),
+    ).toThrow(`starts with "review-stars" blocks but doesn't accept them`);
+  });
+
+  it("checks the sample settings a new section's blocks start with", () => {
+    const badge = defineManifest({
+      ...base,
+      id: "badge",
+      kind: "block",
+      title: "Badge",
+      settings: z.object({ label: z.string().max(10).default("New") }),
+      defaults: {},
+    });
+    const withBadges = (label: string) => ({
+      ...imageBanner,
+      acceptsBlocks: ["badge"],
+      defaultBlocks: ["badge", { type: "badge", settings: { label } }],
+    });
+    expect(() => createCatalog([withBadges("Sale"), badge])).not.toThrow();
+    expect(() => createCatalog([withBadges("Far too long for a badge"), badge])).toThrow(
+      `starts with "badge" settings that don't match it`,
     );
   });
 });
