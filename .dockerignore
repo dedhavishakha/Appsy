@@ -1,0 +1,17 @@
+# What the admin image (apps/admin/Dockerfile, built from the repository root) never copies:
+# installs and builds made on this computer, local data, and every secret.
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+.git
+docs
+apps/admin/build
+apps/admin/.cache
+apps/admin/.preview
+apps/admin/.storage
+apps/admin/.shopify
+apps/mobile/.expo
+apps/mobile/dist
+apps/mobile/web-build
+apps/mobile/.bundled-settings.json
