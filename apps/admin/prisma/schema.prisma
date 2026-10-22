@@ -90,6 +90,18 @@ model AppProject {
   shop            Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
   // Google Play allows app names of up to 30 characters.
   appName         String           @db.VarChar(30)
+  // The app's icon and splash screen choices (models/identity.server.ts). Null until the
+  // merchant saves them; builds then use the defaults.
+  identity        Json?
+  // The app's bundle ID (App Store) and package name (Google Play), which the merchant
+  // chooses on the Publishing page (models/store-accounts.server.ts). Fixed once released.
+  iosBundleId     String?          @unique
+  androidPackage  String?          @unique
+  // What the Publishing page shows about the merchant's connected store accounts (key IDs,
+  // when they were tested). The keys themselves are only in the vault, at credentialsRef
+  // (models/vault.server.ts): an AWS Secrets Manager ARN on the server.
+  storeAccounts   Json?
+  credentialsRef  String?
   status          AppStatus        @default(setup)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt

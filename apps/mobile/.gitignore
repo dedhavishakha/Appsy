@@ -10,4 +10,8 @@ expo-env.d.ts
 !.env.example
 
 # A copy of a store's design built into the app (app.config.js), written by npm run dev
+# or, in builds, scripts/fetch-build-identity.mjs
 .bundled-settings.json
+
+# The app's name, icon and splash screen from Appsy, for builds (fetch-build-identity.mjs)
+.build-identity/

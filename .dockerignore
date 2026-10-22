@@ -10,8 +10,10 @@ apps/admin/build
 apps/admin/.cache
 apps/admin/.preview
 apps/admin/.storage
+apps/admin/.vault
 apps/admin/.shopify
 apps/mobile/.expo
 apps/mobile/dist
 apps/mobile/web-build
 apps/mobile/.bundled-settings.json
+apps/mobile/.build-identity

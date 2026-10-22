@@ -1,6 +1,8 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
+import { deletePublicFiles } from "../models/storage.server";
+import { deleteStoreKeys } from "../models/vault.server";
 
 // Shopify's mandatory privacy webhooks (docs/05-security-and-compliance.md, section 4).
 // authenticate.webhook answers requests with an invalid HMAC with 401, as Shopify requires.
@@ -16,14 +18,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     case "CUSTOMERS_REDACT":
       break;
     // Sent 48 hours after an uninstall. Deleting the Shop row also deletes its app,
-    // design versions and asset records. Uploaded files are deleted here too once the
-    // storage layer exists (Home editor).
-    case "SHOP_REDACT":
+    // design versions, analytics and asset records; its published files (designs, icon and
+    // splash pictures) and its store keys in the vault go too. If any of it fails, Shopify
+    // sends the webhook again.
+    case "SHOP_REDACT": {
+      const record = await db.shop.findUnique({
+        where: { shopDomain: shop },
+        select: { appProject: { select: { id: true } } },
+      });
+      if (record?.appProject) {
+        await deleteStoreKeys(record.appProject.id);
+        await deletePublicFiles(record.appProject.id);
+      }
       await db.$transaction([
         db.shop.deleteMany({ where: { shopDomain: shop } }),
         db.session.deleteMany({ where: { shop } }),
       ]);
       break;
+    }
     default:
       throw new Response("Unhandled webhook topic", { status: 404 });
   }

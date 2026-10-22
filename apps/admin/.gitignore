@@ -22,6 +22,9 @@ database.sqlite
 # The editor's phone preview, built from apps/mobile (routes/preview.$.tsx)
 /.preview
 
+# Merchants' store keys in local development, encrypted (app/models/vault.server.ts)
+/.vault
+
 
 
 

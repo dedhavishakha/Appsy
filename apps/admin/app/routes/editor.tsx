@@ -22,7 +22,6 @@ import {
   type AppDesign,
   type BlockInstance,
   type DesignIssue,
-  type ImageValue,
   type PageName,
   type PublishedSettings,
   type SectionInstance,
@@ -35,6 +34,7 @@ import {
 } from "../components/setting-control";
 import { Sortable } from "../components/sortable";
 import { ThemeSettings } from "../components/theme-settings";
+import { usePickImage } from "../components/use-pick-image";
 import { authenticate } from "../shopify.server";
 import { ensureShopSetup } from "../models/shop.server";
 import { ensureStorefrontToken } from "../models/storefront-token.server";
@@ -53,7 +53,6 @@ import {
   type PreviewItem,
   type SectionType,
 } from "../models/design.server";
-import type { ImageResult } from "../models/image-result";
 import { previewBuilt } from "../models/preview.server";
 
 // The full-screen editor, opened in Shopify's App window from Home and App design
@@ -200,6 +199,7 @@ function Editor() {
   const data = useLoaderData<typeof loader>();
   const { sectionTypes, blockTypes, status, preview } = data;
   const shopify = useAppBridge();
+  const pickImage = usePickImage();
   const fetcher = useFetcher<typeof action>();
 
   const [design, setDesign] = useState<AppDesign>(data.design);
@@ -439,41 +439,6 @@ function Editor() {
     if (!item) return null;
     setTitles((known) => ({ ...known, [item.id]: item.title }));
     return item.id;
-  };
-
-  // A picture's address and size from routes/api.images.tsx (Shopify Files). The status code
-  // in the fallback message helps when the answer isn't Appsy's own.
-  const readImage = async (response: Response): Promise<ImageValue> => {
-    const result = (await response.json().catch(() => null)) as Partial<
-      ImageResult & { image: ImageValue; error: string }
-    > | null;
-    if (result?.image) return result.image;
-    throw new Error(
-      result?.error ??
-        `Appsy couldn't get the picture (error ${response.status}). Please try again.`,
-    );
-  };
-
-  // Shopify's own file picker (Intents API), limited to pictures.
-  const pickImage = async (current?: string): Promise<ImageValue | null> => {
-    if (!shopify.intents?.invoke) {
-      throw new Error(
-        "Shopify's file picker isn't available here. Reload Appsy and try again.",
-      );
-    }
-    const activity = await shopify.intents.invoke("pick:shopify/File", {
-      data: {
-        mediaTypes: ["MediaImage"],
-        multiSelect: false,
-        selectedFiles: current ? [current] : [],
-      },
-    });
-    const response = await activity.complete;
-    if (response?.code !== "ok") return null;
-    const ids = response.data?.ids;
-    const id = Array.isArray(ids) && typeof ids[0] === "string" ? ids[0] : null;
-    if (!id) return null;
-    return readImage(await fetch(`/api/images?id=${encodeURIComponent(id)}`));
   };
 
   const tools: SettingTools = {

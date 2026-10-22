@@ -1,7 +1,9 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "63238367b9259cedd09c67c4cc3a2544"
-application_url = "https://example.com"
+# Appsy's production address (the container on the EC2 server, behind nginx). It must match
+# SHOPIFY_APP_URL on the server (https://shopify.dev/docs/apps/launch/deployment/deploy-to-hosting-service).
+application_url = "https://appsy.scopegen.in"
 embedded = true
 name = "Appsy"
 
@@ -41,7 +43,7 @@ api_version = "2026-07"
   compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://appsy.scopegen.in/auth/callback" ]
 
 [build]
 automatically_update_urls_on_dev = true

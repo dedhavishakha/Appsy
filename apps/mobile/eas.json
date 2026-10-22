@@ -1,0 +1,20 @@
+{
+  "cli": {
+    "version": ">= 25.3.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SETTINGS_URL": "https://appsy.scopegen.in/cdn/a/a0c3cef4-8869-4bfd-ad61-72df013d9ce8/live.json"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "autoIncrement": true
+    }
+  }
+}

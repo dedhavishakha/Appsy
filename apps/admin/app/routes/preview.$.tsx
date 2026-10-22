@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize, relative, sep } from "node:path";
 import type { LoaderFunctionArgs } from "react-router";
 import { PREVIEW_ROOT as ROOT } from "../models/preview.server";
+import { ROBOTS } from "../robots";
 
 // The editor's phone preview (routes/editor.tsx): the phone app's web build, made by
 // apps/mobile/scripts/build-preview.mjs. Public like any website: it holds no store data
@@ -27,7 +28,8 @@ const TYPES: Record<string, string> = {
 
 export const loader = async ({ params }: LoaderFunctionArgs) => {
   const requested = normalize(join(ROOT, params["*"] ?? ""));
-  if (requested !== ROOT && !requested.startsWith(ROOT + sep)) return notFound();
+  if (requested !== ROOT && !requested.startsWith(ROOT + sep))
+    return notFound();
 
   // Paths without a file type are the app's own pages, which its single index.html draws.
   const type = TYPES[extname(requested).toLowerCase()];
@@ -44,7 +46,10 @@ export const loader = async ({ params }: LoaderFunctionArgs) => {
   return new Response(new Uint8Array(body), {
     headers: {
       "Content-Type": type ?? TYPES[".html"],
-      "Cache-Control": hashed ? "public, max-age=31536000, immutable" : "no-cache",
+      "Cache-Control": hashed
+        ? "public, max-age=31536000, immutable"
+        : "no-cache",
+      "X-Robots-Tag": ROBOTS,
     },
   });
 };

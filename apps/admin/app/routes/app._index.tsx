@@ -160,17 +160,18 @@ export default function Home() {
             </s-grid-item>
           </s-grid>
 
-          {/* Terms open in a new window (5.7.7); commission (5.7.6). */}
-          {!connected && (
-            <s-paragraph>
-              By clicking Connect, you agree to Appsy&apos;s{" "}
-              <s-link href="/terms" target="_blank">
-                terms and conditions
-              </s-link>
-              . Appsy doesn&apos;t take a commission on sales made through your
-              app.
-            </s-paragraph>
-          )}
+          {/* Terms open in a new window and stay reachable after connecting (5.7.7);
+              commission (5.7.6). Settings links to them too. */}
+          <s-paragraph>
+            {connected
+              ? "Your store uses Appsy under Appsy's "
+              : "By clicking Connect, you agree to Appsy's "}
+            <s-link href="/terms" target="_blank">
+              terms and conditions
+            </s-link>
+            . Appsy doesn&apos;t take a commission on sales made through your
+            app.
+          </s-paragraph>
 
           {/* Eligibility, shown in the account section (5.7.17). */}
           <s-paragraph color="subdued">

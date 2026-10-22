@@ -1,11 +1,18 @@
 {
   "expo": {
     "name": "Appsy",
-    "slug": "appsy-runtime",
+    "slug": "appsy-by-scopegen",
+    "owner": "scopegen-india",
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "appsy",
     "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "in.scopegen.appsy"
+    },
+    "android": {
+      "package": "in.scopegen.appsy"
+    },
     "platforms": [
       "ios",
       "android",
@@ -16,6 +23,11 @@
       "expo-web-browser",
       "expo-localization",
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "18c774e8-0567-4ede-bbea-886229ac9f2f"
+      }
+    }
   }
 }

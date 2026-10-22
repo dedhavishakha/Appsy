@@ -125,6 +125,21 @@ function MenuDrawer({ progress }: { progress: Animated.Value }) {
               <Ionicons name="shield-checkmark-outline" size={18} color={colors.text} />
               <Text style={[styles.privacyText, { color: colors.text }]}>Privacy choices</Text>
             </Pressable>
+            {/* The fonts' and icons' licences ask for their notices in every copy of the app. */}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => close(() => router.push("/licences"))}
+              style={({ pressed }) => [
+                styles.privacy,
+                styles.next,
+                pressed && { backgroundColor: PRESSED },
+              ]}
+            >
+              <Ionicons name="document-text-outline" size={18} color={colors.text} />
+              <Text style={[styles.privacyText, { color: colors.text }]}>
+                Open-source licences
+              </Text>
+            </Pressable>
           </ScrollView>
         </Animated.View>
       </View>
@@ -216,4 +231,5 @@ const styles = StyleSheet.create({
     paddingVertical: space.md,
   },
   privacyText: { fontSize: 13, opacity: 0.8 },
+  next: { marginTop: 0 },
 });

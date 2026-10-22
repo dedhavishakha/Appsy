@@ -4,10 +4,11 @@
 # phone app (for the preview):
 #   docker build -f apps/admin/Dockerfile -t appsy-admin .
 #
-# Run on the EC2 server: the app listens on 3000 inside the container, published as 3001.
+# Run on the EC2 server: the app listens on 3000 inside the container, published as 3001 on
+# the server only (127.0.0.1); nginx serves it to the internet as https://appsy.scopegen.in.
 # The env file holds no database password (scripts/start.mjs reads it from Secrets Manager),
 # and published designs live in a folder on the server, so redeploys keep them:
-#   docker run -d --name appsy --restart unless-stopped -p 3001:3000 \
+#   docker run -d --name appsy-admin --restart unless-stopped -p 127.0.0.1:3001:3000 \
 #     --env-file /srv/appsy/appsy.env \
 #     -v /srv/appsy/storage:/repo/apps/admin/.storage \
 #     appsy-admin

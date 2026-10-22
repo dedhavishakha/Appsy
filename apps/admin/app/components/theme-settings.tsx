@@ -303,8 +303,9 @@ export function ThemeSettings({
 }
 
 // A colour, typed or picked. Shopify's colour field gives #RRGGBB; anything else is
-// pointed out and not used, so the design always has a colour the app can draw.
-function ColorSetting({
+// pointed out and not used, so the design always has a colour the app can draw. The
+// Publishing page uses it too (components/app-identity.tsx).
+export function ColorSetting({
   label,
   details,
   value,

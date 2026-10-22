@@ -1,5 +1,6 @@
 import { focusManager, QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { router, Stack, usePathname, useRootNavigationState, type Href } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, AppState, Platform, Pressable, StyleSheet, View } from "react-native";
@@ -28,6 +29,12 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 60_000, retry: 1 } },
 });
 
+// The splash screen (the merchant's colour and picture, app.config.js) stays up until the
+// design is ready, rather than giving way to a spinner; never longer than this, so a slow
+// network still reaches the app's own message.
+const SPLASH_LIMIT_MS = 8000;
+if (Platform.OS !== "web") void SplashScreen.preventAutoHideAsync();
+
 export default function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -51,10 +58,11 @@ function DesignGate() {
   useRefreshOnReturn();
   const settings = isPreview ? preview.settings : (published.data ?? kept.settings);
   const typography = useDesignTypography(settings?.theme.fonts ?? null);
+  // An error only when there's no design at all: no download and nothing kept.
+  const failed = !settings && !isPreview && kept.checked && !published.isLoading;
+  useHideSplash(Boolean(settings) || failed);
 
   if (!settings) {
-    // An error only when there's no design at all: no download and nothing kept.
-    const failed = !isPreview && kept.checked && !published.isLoading;
     // A preview built from older code than the editor's (docs/04, section 5a).
     if (isPreview && preview.unreadable) {
       return (
@@ -117,6 +125,7 @@ function DesignGate() {
                     <Stack.Screen name="country" options={modal("Country or region")} />
                     <Stack.Screen name="currency" options={modal("Currency")} />
                     <Stack.Screen name="privacy" options={modal("Privacy choices")} />
+                    <Stack.Screen name="licences" options={modal("Open-source licences")} />
                   </Stack>
                   {isPreview && <PreviewNavigator request={preview.navigation} />}
                 </MenuDrawerProvider>
@@ -146,6 +155,20 @@ function useKeptSettings() {
     };
   }, []);
   return kept;
+}
+
+// Hides the splash screen once there's something to show (the design, or the message that
+// it couldn't load), or after SPLASH_LIMIT_MS. Native only: the web preview has none.
+function useHideSplash(ready: boolean) {
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    if (ready) {
+      SplashScreen.hide();
+      return;
+    }
+    const timer = setTimeout(() => SplashScreen.hide(), SPLASH_LIMIT_MS);
+    return () => clearTimeout(timer);
+  }, [ready]);
 }
 
 // When the shopper comes back to the app, data older than a minute reloads: a newly

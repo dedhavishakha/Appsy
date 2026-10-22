@@ -9,6 +9,9 @@
     "start": "expo start",
     "web": "expo start --web",
     "build:preview": "node scripts/build-preview.mjs",
+    "build-identity": "node scripts/fetch-build-identity.mjs",
+    "eas-build-pre-install": "node scripts/fetch-build-identity.mjs",
+    "licences": "node scripts/write-licences.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -35,6 +38,7 @@
     "expo-linking": "~57.0.11",
     "expo-localization": "~57.0.2",
     "expo-router": "~57.0.24",
+    "expo-splash-screen": "~57.0.10",
     "expo-status-bar": "~57.0.1",
     "expo-web-browser": "~57.0.3",
     "react": "19.2.3",

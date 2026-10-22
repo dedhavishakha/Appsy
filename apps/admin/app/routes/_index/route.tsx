@@ -1,66 +1,62 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { redirect, Form, useActionData, useLoaderData } from "react-router";
-
-import { login } from "../../shopify.server";
-import { loginErrorMessage } from "./error.server";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { redirect } from "react-router";
+import { PublicPage } from "../../components/public-page";
 
 import styles from "./styles.module.css";
+
+// Appsy's front page, for anyone who opens appsy.scopegen.in outside Shopify. Merchants install
+// Appsy from the Shopify App Store and open it in their Shopify admin, so nothing here asks
+// for a store's address (App Store requirement 2.3.1).
+
+export const meta: MetaFunction = () => [
+  { title: "Appsy by Scopegen" },
+  {
+    name: "description",
+    content: "Branded iPhone and Android shopping apps for Shopify stores.",
+  },
+];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
 
+  // Shopify opens the app's address with the store in the query: that's the app itself.
   if (url.searchParams.get("shop")) {
     throw redirect(`/app?${url.searchParams.toString()}`);
   }
 
-  return { showForm: Boolean(login) };
+  return null;
 };
 
-export const action = async ({ request }: ActionFunctionArgs) => {
-  const errors = loginErrorMessage(await login(request));
-
-  return { errors };
-};
-
-export default function App() {
-  const { showForm } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
-  const errors = actionData?.errors;
-
+export default function Index() {
   return (
-    <div className={styles.index}>
-      <div className={styles.content}>
-        <h1 className={styles.heading}>A short heading about [your app]</h1>
+    <PublicPage>
+      <section className={styles.hero}>
+        <h1 className={styles.heading}>Your Shopify store as a mobile app</h1>
         <p className={styles.text}>
-          A tagline about [your app] that describes your value proposition.
+          Appsy builds branded iPhone and Android shopping apps from your
+          Shopify store. You design them in your Shopify admin, with no code.
         </p>
-        {showForm && (
-          <Form className={styles.form} method="post">
-            <label className={styles.label}>
-              <span>Shop domain</span>
-              <input className={styles.input} type="text" name="shop" />
-              <span>{errors?.shop ?? "e.g: my-shop-domain.myshopify.com"}</span>
-            </label>
-            <button className={styles.button} type="submit">
-              Log in
-            </button>
-          </Form>
-        )}
-        <ul className={styles.list}>
-          <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
-          </li>
-          <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
-          </li>
-          <li>
-            <strong>Product feature</strong>. Some detail about your feature and
-            its benefit to your customer.
-          </li>
-        </ul>
-      </div>
-    </div>
+        <p className={styles.install}>
+          Appsy is installed from the Shopify App Store and opened from your
+          Shopify admin.
+        </p>
+      </section>
+      <ul className={styles.list}>
+        <li>
+          <strong>Design without code.</strong> Arrange sections, colours and
+          fonts in an editor, and see each change on a phone as you make it.
+        </li>
+        <li>
+          <strong>Your products, Shopify checkout.</strong> Products,
+          collections, search and the bag come straight from your store, and
+          shoppers pay in Shopify&apos;s checkout.
+        </li>
+        <li>
+          <strong>Your own app.</strong> It&apos;s published on the App Store
+          and Google Play under your own developer accounts, with your name and
+          brand.
+        </li>
+      </ul>
+    </PublicPage>
   );
 }

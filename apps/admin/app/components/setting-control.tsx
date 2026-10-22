@@ -343,7 +343,7 @@ export function ImagePicker({
   label: string;
   value: unknown;
   error?: string;
-  tools: SettingTools;
+  tools: Pick<SettingTools, "pickImage" | "filesAccess">;
   onChange: (value: ImageValue | null) => void;
 }) {
   const parsed = imageValue.safeParse(value);
@@ -385,8 +385,8 @@ export function ImagePicker({
           heading="Appsy can't use your Shopify Files yet"
         >
           <s-paragraph>
-            Close the editor and reload Appsy. If Shopify asks you to approve an
-            update, approve it. Then open the editor again.
+            Reload Appsy, closing the editor first if it&apos;s open. If Shopify
+            asks you to approve an update, approve it.
           </s-paragraph>
         </s-banner>
       ) : busy ? (

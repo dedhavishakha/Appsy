@@ -1,0 +1,93 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color: #1f2937;
+  background: #ffffff;
+  line-height: 1.6;
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  max-width: 48rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+  box-sizing: border-box;
+}
+
+.brand {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: inherit;
+  text-decoration: none;
+}
+
+.by {
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.main {
+  flex: 1;
+  max-width: 48rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1rem 1rem 3rem;
+  box-sizing: border-box;
+}
+
+.footer {
+  border-top: 1px solid #e5e7eb;
+  padding: 1.5rem 1rem;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem 1.5rem;
+  font-size: 0.875rem;
+}
+
+.links a {
+  color: #4b5563;
+}
+
+.legal h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.75rem;
+  line-height: 1.3;
+}
+
+.legal h2 {
+  margin: 2rem 0 0.5rem;
+  font-size: 1.125rem;
+}
+
+.legal ul {
+  padding-left: 1.25rem;
+}
+
+.updated {
+  margin: 0 0 1rem;
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.draft {
+  margin: 0 0 1.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  background: #fef3c7;
+  color: #78350f;
+  font-size: 0.875rem;
+}
