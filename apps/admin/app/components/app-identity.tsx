@@ -17,7 +17,9 @@ import { usePickImage } from "./use-pick-image";
 
 // The app's name, icon and splash screen, on the Publishing page. Unlike the design, they
 // reach the app with its next build (models/identity.server.ts makes the files). Saved
-// with Shopify's save bar, as in the editor: a hidden field carries the choices.
+// with Shopify's save bar, as in the editor (a hidden field carries the choices), or with
+// the section's own Save button: the save bar sits above the page, where merchants
+// testing the build button missed it (2026-10-26).
 
 type Saved = { appName: string; settings: IdentitySettings };
 
@@ -39,6 +41,7 @@ export function AppIdentity({
   const pendingJson = useRef<string | null>(null);
 
   const json = JSON.stringify({ appName, settings });
+  const dirty = json !== savedJson;
   const busy = fetcher.state !== "idle";
   const issues = busy ? [] : (fetcher.data?.issues ?? []);
   const errorFor = (field: IdentityField) =>
@@ -63,7 +66,12 @@ export function AppIdentity({
       return;
     if (fetcher.data.issues.length === 0) {
       setSavedJson(pendingJson.current);
-      if (choices.current) choices.current.defaultValue = pendingJson.current;
+      if (choices.current) {
+        // Saved values are the form's new starting point, so the save bar hides too when
+        // the section's Save button was used.
+        choices.current.defaultValue = pendingJson.current;
+        choices.current.dispatchEvent(new Event("input", { bubbles: true }));
+      }
       shopify.toast.show("Saved. Your app gets these with its next build.");
     } else {
       // Nothing was saved, so bring the save bar back.
@@ -72,13 +80,16 @@ export function AppIdentity({
     pendingJson.current = null;
   }, [fetcher.state, fetcher.data, shopify]);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const save = () => {
     pendingJson.current = json;
     fetcher.submit(
       { intent: "identity", appName, settings: JSON.stringify(settings) },
       { method: "POST" },
     );
+  };
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    save();
   };
 
   const discard = () => {
@@ -182,6 +193,20 @@ export function AppIdentity({
           image={settings.splashImage ?? icon}
           background={settings.splashBackground}
         />
+
+        <s-stack direction="inline" gap="small" alignItems="center">
+          <s-button
+            variant="primary"
+            disabled={!dirty || busy || undefined}
+            loading={busy || undefined}
+            onClick={save}
+          >
+            Save app name and icon
+          </s-button>
+          {dirty && !busy && (
+            <s-text color="subdued">You have unsaved changes.</s-text>
+          )}
+        </s-stack>
       </s-stack>
     </s-section>
   );

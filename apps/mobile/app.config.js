@@ -20,6 +20,10 @@ function readLocal(projectRoot, path) {
 
 // The splash picture's width in points (as the Publishing page previews it).
 const SPLASH_IMAGE_WIDTH = 200;
+// expo-splash-screen's Android theme always points at a splash picture, so a build without
+// one fails ("drawable/splashscreen_logo not found"). Until the merchant saves an icon, this
+// transparent one leaves only the background colour.
+const BLANK_SPLASH = "./assets/splash-blank.png";
 
 /**
  * @param {import("expo/config").ConfigContext} context
@@ -64,7 +68,8 @@ module.exports = ({ config, projectRoot }) => {
         "expo-splash-screen",
         {
           backgroundColor: splash?.background ?? "#FFFFFF",
-          ...(splash?.image ? { image: splash.image, imageWidth: SPLASH_IMAGE_WIDTH } : {}),
+          image: splash?.image ?? BLANK_SPLASH,
+          imageWidth: SPLASH_IMAGE_WIDTH,
         },
       ],
     ],

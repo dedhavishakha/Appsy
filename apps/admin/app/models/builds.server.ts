@@ -7,13 +7,14 @@ import {
   type BuildStatus,
 } from "./builds";
 import { liveKey, loadStatus } from "./design.server";
+import { identitySchema } from "./identity";
 import {
   startAndroidBuild,
   submitToGooglePlay,
   viewBuild,
   type MerchantApp,
 } from "./eas.server";
-import { publicUrl } from "./storage.server";
+import { publicUrl, readPublicFile } from "./storage.server";
 import { storeAccountsSchema } from "./store-accounts";
 import { getStoreKeys } from "./vault.server";
 
@@ -61,18 +62,34 @@ function unavailable() {
   return null;
 }
 
+// Builds download the published files first (apps/mobile/scripts/fetch-build-identity.mjs)
+// and stop without them, so they're checked here before Expo is asked to build.
 async function readiness(appProjectId: string) {
-  const [project, status] = await Promise.all([
+  const [project, status, liveFile, identityFile] = await Promise.all([
     db.appProject.findUniqueOrThrow({
       where: { id: appProjectId },
-      select: { androidPackage: true, storeAccounts: true },
+      select: { androidPackage: true, storeAccounts: true, identity: true },
     }),
     loadStatus(appProjectId),
+    readPublicFile(liveKey(appProjectId)),
+    readPublicFile(`a/${appProjectId}/identity.json`),
   ]);
   const accounts = storeAccountsSchema.safeParse(project.storeAccounts ?? {});
   const missing: string[] = [];
   if (status.liveVersion === null)
     missing.push("Publish your design in the editor.");
+  else if (!liveFile) {
+    console.error(`Published files missing for app ${appProjectId}`);
+    missing.push(
+      "Publish your design again (a change in the editor, or a switch in Settings), so the build can include it.",
+    );
+  }
+  // A merchant's app needs its own icon (else it shows Expo's), so builds wait for one.
+  const identity = identitySchema.safeParse(project.identity);
+  if (!identity.success || !identity.data.icon)
+    missing.push("Choose your app's icon under App name and icon, then save.");
+  else if (!identityFile)
+    missing.push("Save your app name and icon again on this page.");
   if (!project.androidPackage)
     missing.push("Save your App ID under Store accounts.");
   if (!accounts.success || !accounts.data.google)

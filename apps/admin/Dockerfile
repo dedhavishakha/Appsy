@@ -7,7 +7,10 @@
 # Run on the EC2 server: the app listens on 3000 inside the container, published as 3001 on
 # the server only (127.0.0.1); nginx serves it to the internet as https://appsy.scopegen.in.
 # The env file holds no database password (scripts/start.mjs reads it from Secrets Manager),
-# and published designs live in a folder on the server, so redeploys keep them:
+# and published designs live in a folder on the server, so redeploys keep them. Always
+# mount the SAME folder (the paths below are examples; use the server's real ones): a
+# container started without it, or with another folder, serves no designs, and phones and
+# builds get "not found" (2026-10-26).
 #   docker run -d --name appsy-admin --restart unless-stopped -p 127.0.0.1:3001:3000 \
 #     --env-file /srv/appsy/appsy.env \
 #     -v /srv/appsy/storage:/repo/apps/admin/.storage \
