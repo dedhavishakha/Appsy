@@ -33,6 +33,9 @@ module.exports = ({ config, projectRoot }) => {
   // Designs published since 2026-10-15 carry it (app.name).
   const appName = bundledSettings?.app?.name;
   const splash = identity?.splash;
+  // A merchant's builds, started by Appsy's server, carry their App ID (Publishing › Store
+  // accounts) as the bundle ID and package name; without it, app.json's own test app ID.
+  const appId = process.env.APPSY_APP_ID;
   return {
     ...config,
     name:
@@ -40,8 +43,10 @@ module.exports = ({ config, projectRoot }) => {
       (typeof appName === "string" && appName ? appName : (config.name ?? "Appsy")),
     slug: config.slug ?? "appsy-by-scopegen",
     ...(identity?.icon ? { icon: identity.icon } : {}),
+    ios: { ...config.ios, ...(appId ? { bundleIdentifier: appId } : {}) },
     android: {
       ...config.android,
+      ...(appId ? { package: appId } : {}),
       ...(identity?.android
         ? {
             adaptiveIcon: {

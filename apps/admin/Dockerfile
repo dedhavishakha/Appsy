@@ -15,6 +15,10 @@
 #
 # Building needs a few GB of memory (the phone preview build). On a server shared with
 # another app, build elsewhere (for example GitHub Actions) and pull the finished image.
+#
+# The image also starts merchants' app builds on Expo (app/models/eas.server.ts): it holds
+# Expo's command-line tool and the phone app with its packages, which the tool reads the
+# app's settings with. The tool signs in with EXPO_TOKEN from the secret.
 
 # 1. The editor's phone preview: the phone app's web build, from the root install.
 FROM node:22-bookworm-slim AS preview
@@ -38,12 +42,25 @@ RUN cd apps/admin && npm ci --no-audit --no-fund
 COPY apps/admin ./apps/admin
 RUN cd apps/admin && npx prisma generate && npm run build && npm prune --omit=dev
 
-# 3. What runs on the server.
+# 3. The phone app for merchants' builds: its source and packages, without development
+#    tools. Builds copy it to a temporary folder for each merchant.
+FROM node:22-bookworm-slim AS mobile
+ENV CI=1 EXPO_NO_TELEMETRY=1
+WORKDIR /repo
+COPY package.json package-lock.json .gitignore ./
+COPY packages ./packages
+COPY apps/mobile ./apps/mobile
+RUN npm ci --omit=dev --no-audit --no-fund
+
+# 4. What runs on the server.
 FROM node:22-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
+# Expo's command-line tool, the version apps/mobile/eas.json asks for.
+RUN npm install -g eas-cli@25.3.0 --no-audit --no-fund
 ENV NODE_ENV=production PORT=3000
 WORKDIR /repo/apps/admin
+COPY --from=mobile /repo /repo
 COPY --from=build /repo/packages /repo/packages
 COPY --from=build /repo/apps/admin /repo/apps/admin
 COPY --from=preview /repo/apps/admin/.preview /repo/apps/admin/.preview

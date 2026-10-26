@@ -1,5 +1,9 @@
 node_modules/
 .expo/
+
+# Native projects that `expo prebuild` makes; builds make their own from app.config.js
+/android
+/ios
 dist/
 web-build/
 expo-env.d.ts

@@ -5,9 +5,12 @@ import type {
 } from "react-router";
 import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
+import { AppBuilds } from "../components/app-builds";
 import { AppIdentity } from "../components/app-identity";
 import { StoreAccountsSection } from "../components/store-accounts";
 import { authenticate } from "../shopify.server";
+import type { BuildIntent, BuildResult } from "../models/builds";
+import { loadBuilds, startBuild, uploadAgain } from "../models/builds.server";
 import { loadIdentity, saveIdentity } from "../models/identity.server";
 import type { IdentityIssue } from "../models/identity";
 import { ensureShopSetup } from "../models/shop.server";
@@ -24,11 +27,11 @@ import {
 
 // Publishing: the app's name, icon and splash screen (components/app-identity.tsx), the
 // App ID and store accounts Appsy builds and uploads with (components/store-accounts.tsx),
-// then how merchants publish their app on the App Store and Google Play, with the wait
-// times and requirements (App Store requirement 5.9.2). Store listings are the merchant's,
-// filled in App Store Connect and Play Console themselves (decided 2026-10-22). The guide's
-// source is docs/06; every figure links to the official page it comes from (checked
-// 2026-10-21).
+// building the app and uploading it for testing (components/app-builds.tsx), then how
+// merchants publish their app on the App Store and Google Play, with the wait times and
+// requirements (App Store requirement 5.9.2). Store listings are the merchant's, filled in
+// App Store Connect and Play Console themselves (decided 2026-10-22). The guide's source is
+// docs/06; every figure links to the official page it comes from (checked 2026-10-21).
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session, scopes } = await authenticate.admin(request);
@@ -45,22 +48,34 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const filesAccess =
     granted === null ||
     ["read_files", "write_files"].some((name) => granted.includes(name));
-  const [identity, store] = await Promise.all([
+  const [identity, store, builds] = await Promise.all([
     loadIdentity(shop.appProject.id),
     loadStoreAccounts(shop.appProject.id, session.shop),
+    loadBuilds(shop.appProject.id),
   ]);
-  return { identity, store, filesAccess };
+  return { identity, store, builds, filesAccess };
 };
 
 // Each part of the page posts its own intent: "identity" for the name and icon, the
-// others for the App ID and store accounts.
+// build ones for building and uploading, the others for the App ID and store accounts.
 export const action = async ({
   request,
-}: ActionFunctionArgs): Promise<{ issues: IdentityIssue[] } | StoreResult> => {
-  const { admin, session } = await authenticate.admin(request);
+}: ActionFunctionArgs): Promise<
+  { issues: IdentityIssue[] } | StoreResult | BuildResult
+> => {
+  const { admin, session, sessionToken } = await authenticate.admin(request);
   const shop = await ensureShopSetup(admin, session.shop);
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "identity");
+  if (intent === "build-android" || intent === "upload-again") {
+    return buildAction(
+      intent,
+      shop.appProject.id,
+      form,
+      sessionToken?.sub ?? null,
+      session.shop,
+    );
+  }
   if (intent !== "identity") {
     return storeAction(
       intent as StoreIntent,
@@ -96,6 +111,31 @@ export const action = async ({
     };
   }
 };
+
+async function buildAction(
+  intent: BuildIntent,
+  appProjectId: string,
+  form: FormData,
+  createdBy: string | null,
+  shopDomain: string,
+): Promise<BuildResult> {
+  try {
+    const result =
+      intent === "build-android"
+        ? await startBuild(appProjectId, createdBy)
+        : await uploadAgain(appProjectId, form.get("buildId"));
+    return { intent, ...result };
+  } catch (error) {
+    if (error instanceof Response) throw error;
+    console.error(`Builds (${intent}) for ${shopDomain}:`, error);
+    return {
+      intent,
+      issues: [
+        { message: "Appsy couldn't do that just now. Please try again." },
+      ],
+    };
+  }
+}
 
 async function storeAction(
   intent: StoreIntent,
@@ -178,7 +218,8 @@ const WAIT_TIMES = [
 ];
 
 export default function Publishing() {
-  const { identity, store, filesAccess } = useLoaderData<typeof loader>();
+  const { identity, store, builds, filesAccess } =
+    useLoaderData<typeof loader>();
 
   return (
     <s-page heading="Publishing your app">
@@ -193,6 +234,8 @@ export default function Publishing() {
         suggestedAppId={store.suggestedAppId}
         accounts={store.accounts}
       />
+
+      <AppBuilds android={builds.android} builds={builds.builds} />
 
       <s-banner tone="info" heading="Start your developer accounts early">
         <s-paragraph>
@@ -318,9 +361,13 @@ export default function Publishing() {
             key file under Store accounts above.
           </s-list-item>
           <s-list-item>
-            When Appsy has uploaded your app to internal testing, complete the
-            dashboard tasks: app content (including the Data safety form) and
-            the store listing (a name of up to 30 characters, a short
+            Click Build Android app under Build and upload above. Appsy builds
+            your app and uploads it to the internal testing track, where your
+            testers (up to 100) install it from Google Play.
+          </s-list-item>
+          <s-list-item>
+            Complete the dashboard tasks: app content (including the Data safety
+            form) and the store listing (a name of up to 30 characters, a short
             description of up to 80 and a full description of up to 4,000).
           </s-list-item>
           <s-list-item>

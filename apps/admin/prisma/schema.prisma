@@ -108,6 +108,34 @@ model AppProject {
   configVersions  ConfigVersion[]
   assets          Asset[]
   analyticsEvents AnalyticsEvent[]
+  builds          AppBuild[]
+}
+
+// One build of a merchant's app on Expo (EAS) and its upload to the store's testing track,
+// started from the Publishing page (models/builds.server.ts). Status: starting → building →
+// uploading → uploaded (or uploaded_draft, a release the merchant rolls out in Play
+// Console); failed when the build fails, upload_failed when only the upload does.
+model AppBuild {
+  id            String     @id @default(uuid()) @db.Uuid
+  appProjectId  String     @db.Uuid
+  appProject    AppProject @relation(fields: [appProjectId], references: [id], onDelete: Cascade)
+  platform      String
+  status        String
+  // The App ID (package name / bundle ID) and design version it was built with.
+  appId         String
+  designVersion Int?
+  easBuildId    String?    @unique
+  appVersion    String?
+  buildNumber   String?
+  // Expo's download link for the finished app file (.aab), for uploading it by hand.
+  artifactUrl   String?
+  error         String?
+  createdBy     String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  finishedAt    DateTime?
+
+  @@index([appProjectId, createdAt])
 }
 
 // A usage event from a merchant's app, sent only after the shopper allows it

@@ -14,7 +14,9 @@ import { join } from "node:path";
 import process from "node:process";
 
 // Fields the secret may hold besides the database login, so they needn't sit in an env file.
-const EXTRA_SECRETS = ["SHOPIFY_API_SECRET"];
+// EXPO_TOKEN is the Expo robot user's token, which merchants' builds run with
+// (app/models/eas.server.ts).
+const EXTRA_SECRETS = ["SHOPIFY_API_SECRET", "EXPO_TOKEN"];
 
 async function readSecret() {
   const { AWS_REGION: region, AWS_SECRET_ARN: secretId } = process.env;
@@ -101,6 +103,45 @@ function runPrisma(args) {
   if (result.status !== 0) throw new Error(`prisma ${args.join(" ")} failed.`);
 }
 
+// Signs in to Expo with EXPO_TOKEN the way merchants' builds do, and shows who it is and
+// which Expo accounts it can use (never the token).
+function checkExpo() {
+  if (!process.env.EXPO_TOKEN) {
+    console.log("No EXPO_TOKEN in the secret: merchants' builds can't run.");
+    return;
+  }
+  // Only what the tool needs to run and sign in, never the database login.
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) =>
+      [
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "COMSPEC",
+        "HOME",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "TEMP",
+        "TMP",
+        "EXPO_TOKEN",
+      ].includes(key.toUpperCase()),
+    ),
+  );
+  const result = spawnSync("eas", ["whoami"], {
+    env,
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
+  if (result.status !== 0) {
+    console.log(
+      `Expo didn't accept EXPO_TOKEN: ${(result.stderr || result.error?.message || "").trim()}`,
+    );
+    return;
+  }
+  console.log(`Expo token works. Expo says:\n${result.stdout.trim()}`);
+}
+
 async function main() {
   const check = process.argv.includes("--check");
   const { fields } = await prepareEnvironment();
@@ -112,6 +153,7 @@ async function main() {
     console.log(
       "Check passed: the database login works and the database answers.",
     );
+    checkExpo();
     return;
   }
 
