@@ -17,6 +17,12 @@ export default async function handleRequest(
 ) {
   addDocumentResponseHeaders(request, responseHeaders);
   responseHeaders.set("X-Robots-Tag", ROBOTS);
+  // Pages reach browsers exactly as Appsy sends them. Cloudflare, which proxies
+  // appsy.scopegen.in, otherwise adds its Web Analytics script to every page; on 2026-10-26
+  // it landed inside React's streamed markup, leaving a stray "$" on the page. Cloudflare
+  // leaves no-transform responses unchanged (Web Analytics docs); private keeps a store's
+  // pages out of shared caches.
+  responseHeaders.set("Cache-Control", "private, no-transform");
   const userAgent = request.headers.get("user-agent");
   const callbackName = isbot(userAgent ?? "") ? "onAllReady" : "onShellReady";
 
