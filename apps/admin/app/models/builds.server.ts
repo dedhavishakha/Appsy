@@ -8,6 +8,7 @@ import {
 } from "./builds";
 import { liveKey, loadStatus } from "./design.server";
 import { identitySchema } from "./identity";
+import { identityKey } from "./identity.server";
 import {
   startAndroidBuild,
   submitToGooglePlay,
@@ -72,7 +73,7 @@ async function readiness(appProjectId: string) {
     }),
     loadStatus(appProjectId),
     readPublicFile(liveKey(appProjectId)),
-    readPublicFile(`a/${appProjectId}/identity.json`),
+    readPublicFile(identityKey(appProjectId)),
   ]);
   const accounts = storeAccountsSchema.safeParse(project.storeAccounts ?? {});
   const missing: string[] = [];
@@ -251,7 +252,8 @@ async function upload(buildId: string) {
     );
     if ("error" in result) {
       console.error(`Upload of build ${buildId} failed:\n${result.error}`);
-      await settle(buildId, "upload_failed", uploadProblem(result.error));
+      const problem = uploadProblem(result.error);
+      await settle(buildId, problem.status, problem.message);
       return;
     }
     await settle(buildId, result.draft ? "uploaded_draft" : "uploaded", null);
@@ -267,18 +269,51 @@ async function upload(buildId: string) {
   }
 }
 
-// What the merchant can do about Google Play's most common answers; otherwise its own words.
-function uploadProblem(error: string) {
-  if (/package not found/i.test(error)) {
-    return "Google Play doesn't know your App ID yet. Download the app file and upload this first version yourself in Play Console: Test and release › Testing › Internal testing › Create new release. Appsy uploads the versions after it.";
+// What the merchant can do about Google Play's most common answers, in Google's words or
+// Expo's (eas-cli prints its own message for errors it knows). Anything else gets a short
+// message: the CLI's output, with Appsy's Expo links, stays in the server's log.
+function uploadProblem(output: string): {
+  status: BuildStatus;
+  message: string;
+} {
+  if (
+    /package not found|cannot find the app|haven't submitted this app|first (?:submission|version) .*manually/i.test(
+      output,
+    )
+  ) {
+    return {
+      status: "upload_failed",
+      message:
+        "Google Play can't find your app yet. In Play Console, check you created it with your App ID as its package name, then try the upload again. If it still doesn't work, download the app file and upload this first version yourself: Test and release › Testing › Internal testing › Create new release.",
+    };
   }
-  if (/caller does not have permission/i.test(error)) {
-    return "Your Google Play key can't release this app yet. In Play Console's Users and permissions, give the service account permission to release to testing tracks, then try the upload again.";
+  // Expo: "The Google service account cannot submit this app" (Local noodle, 2026-10-27).
+  if (
+    /cannot submit this app|does(?:n't| not) have (?:the )?permission/i.test(
+      output,
+    )
+  ) {
+    return {
+      status: "upload_failed",
+      message:
+        'Your Google Play key can\'t release this app yet. In Play Console, open Users and permissions, open the service account, and under App permissions add this app with "Release apps to testing tracks". Then try the upload again.',
+    };
   }
-  if (/version code .*already been used/i.test(error)) {
-    return "Google Play already has a version with this build number. Build your app again.";
+  if (
+    /version code .*already been used|already submitted this version/i.test(
+      output,
+    )
+  ) {
+    return {
+      status: "upload_refused",
+      message:
+        "Google Play already has this version of your app, for example because it was uploaded in Play Console. Build your app again for a new version.",
+    };
   }
-  return `Google Play didn't take the upload:\n${error}`;
+  return {
+    status: "upload_failed",
+    message: "Google Play didn't take the upload. Please try the upload again.",
+  };
 }
 
 async function settle(

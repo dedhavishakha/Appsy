@@ -26,7 +26,8 @@ describe("the section stores add to their privacy policy", () => {
 
   it("names each kind of usage event once", () => {
     expect(text.match(/opening the app/g)).toHaveLength(1);
-    expect(DATA_SAFETY_ITEMS[0]?.what.match(/app opens/g)).toHaveLength(1);
+    const usage = DATA_SAFETY_ITEMS.find((item) => item.type === "App interactions");
+    expect(usage?.what.match(/app opens/g)).toHaveLength(1);
   });
 
   it("pastes as plain paragraphs", () => {

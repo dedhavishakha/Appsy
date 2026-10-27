@@ -51,6 +51,20 @@ const CHANNEL_DELETE_MUTATION = `#graphql
     }
   }`;
 
+const SHOP_FEEDBACK_MUTATION = `#graphql
+  mutation AppsyShopFeedback($input: ResourceFeedbackCreateInput!) {
+    shopResourceFeedbackCreate(input: $input) {
+      userErrors {
+        field
+        message
+      }
+    }
+  }`;
+
+// Shopify shows this after the app's name, on the merchant's Shopify admin home.
+const UNPUBLISHED_FEEDBACK =
+  "has no published app design yet. Open Appsy and publish your design to show your products in your app.";
+
 export type AppsyChannel = {
   id: string;
   handle: string;
@@ -72,7 +86,9 @@ export async function loadChannel(
     data: { channels: { nodes: AppsyChannel[] } };
   };
   const channel =
-    data.channels.nodes.find((node) => node.specificationHandle === SPEC_HANDLE) ?? null;
+    data.channels.nodes.find(
+      (node) => node.specificationHandle === SPEC_HANDLE,
+    ) ?? null;
 
   const state: ChannelState = channel
     ? "connected"
@@ -80,7 +96,10 @@ export async function loadChannel(
       ? "disconnected"
       : shop.channelState;
   if (state !== shop.channelState) {
-    await db.shop.update({ where: { id: shop.id }, data: { channelState: state } });
+    await db.shop.update({
+      where: { id: shop.id },
+      data: { channelState: state },
+    });
   }
   return channel;
 }
@@ -106,9 +125,45 @@ export async function connectChannel(
   };
   const errors = data.channelCreate.userErrors.map((error) => error.message);
   if (errors.length === 0) {
-    await db.shop.update({ where: { id: shopId }, data: { channelState: "connected" } });
+    await db.shop.update({
+      where: { id: shopId },
+      data: { channelState: "connected" },
+    });
   }
   return errors;
+}
+
+// Appsy's one required setup step, shown on the merchant's Shopify admin home until it's
+// done (ResourceFeedback, App Store requirement 5.7.3): a published app design, without
+// which the app shows nothing. Shopify's docs keep resource feedback to steps merchants
+// must complete, and Appsy takes every product, so products get none. Sent when the store
+// connects and when it publishes; a store that hasn't approved write_resource_feedbacks
+// yet gets it with its next publish.
+export async function reportSetup(admin: AdminApiContext, published: boolean) {
+  const input = {
+    state: published ? "ACCEPTED" : "REQUIRES_ACTION",
+    messages: published ? [] : [UNPUBLISHED_FEEDBACK],
+    feedbackGeneratedAt: new Date().toISOString(),
+  };
+  try {
+    const response = await admin.graphql(SHOP_FEEDBACK_MUTATION, {
+      variables: { input },
+    });
+    const { data } = (await response.json()) as {
+      data?: { shopResourceFeedbackCreate: { userErrors: UserError[] } };
+    };
+    const errors = data?.shopResourceFeedbackCreate.userErrors ?? [];
+    if (errors.length > 0) {
+      console.error(
+        "Shop feedback:",
+        errors.map((error) => error.message).join("; "),
+      );
+    }
+  } catch (error) {
+    // An expired or invalid token: App Bridge retries the whole request.
+    if (error instanceof Response) throw error;
+    console.error("Shop feedback:", error);
+  }
 }
 
 // Disconnects without contacting support (App Store requirement 5.7.12). Shopify removes
@@ -126,7 +181,10 @@ export async function disconnectChannel(
   };
   const errors = data.channelDelete.userErrors.map((error) => error.message);
   if (errors.length === 0) {
-    await db.shop.update({ where: { id: shopId }, data: { channelState: "disconnected" } });
+    await db.shop.update({
+      where: { id: shopId },
+      data: { channelState: "disconnected" },
+    });
   }
   return errors;
 }

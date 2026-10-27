@@ -21,7 +21,9 @@ import {
   connectChannel,
   disconnectChannel,
   loadChannel,
+  reportSetup,
 } from "../models/channel.server";
+import { loadStatus } from "../models/design.server";
 
 // Appsy's home: the account and publishing sections that Shopify requires of sales
 // channel apps (App Store requirements 5.7.x; docs/01, Phase 1).
@@ -39,7 +41,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }),
   ]);
 
-  return { channel, week };
+  return { channel, week, androidPackage: shop.appProject.androidPackage };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -48,10 +50,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const intent = (await request.formData()).get("intent");
 
   if (intent === "connect") {
-    return {
-      intent,
-      errors: await connectChannel(admin, shop.id, shop.appProject.id),
-    };
+    const errors = await connectChannel(admin, shop.id, shop.appProject.id);
+    if (errors.length === 0) {
+      const { liveVersion } = await loadStatus(shop.appProject.id);
+      await reportSetup(admin, liveVersion !== null);
+    }
+    return { intent, errors };
   }
   if (intent === "disconnect") {
     const channel = await loadChannel(admin, shop);
@@ -66,7 +70,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Home() {
-  const { channel, week } = useLoaderData<typeof loader>();
+  const { channel, week, androidPackage } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
 
@@ -274,7 +278,9 @@ export default function Home() {
         </s-stack>
       )}
 
-      {/* Publishing section: a card in the annotated layout, with the published-product count (5.7.4, 5.7.9). */}
+      {/* Publishing section: a card in the annotated layout, with the published-product count
+          (5.7.4, 5.7.9), why no product has a publishing error (5.7.11), and where shoppers
+          find the products: the store's app on Google Play (5.7.5). */}
       {connected && (
         <s-query-container>
           <s-grid
@@ -296,11 +302,31 @@ export default function Home() {
                   <s-paragraph>
                     <s-text type="strong">{countText}</s-text>{" "}
                     {count?.count === 1 ? "product is" : "products are"}{" "}
-                    available in your app.
+                    available in your app. Appsy shows every product you make
+                    available here, so there are no publishing errors to fix.
                   </s-paragraph>
                   <s-link href="shopify://admin/products">
                     Manage products
                   </s-link>
+                  {androidPackage ? (
+                    <s-paragraph>
+                      Shoppers find your products in your app on Google Play
+                      once it&apos;s published there:{" "}
+                      <s-link
+                        href={`https://play.google.com/store/apps/details?id=${encodeURIComponent(androidPackage)}`}
+                        target="_blank"
+                      >
+                        your app on Google Play
+                      </s-link>
+                      .
+                    </s-paragraph>
+                  ) : (
+                    <s-paragraph>
+                      Shoppers find your products in your mobile app.{" "}
+                      <s-link href="/app/publishing">Publish your app</s-link>{" "}
+                      on Google Play to get it to them.
+                    </s-paragraph>
+                  )}
                 </s-stack>
               </s-section>
             </s-grid-item>

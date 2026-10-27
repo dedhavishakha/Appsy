@@ -113,18 +113,24 @@ export function PrivacyForms({ appName, policy }: Props) {
           </s-list-item>
           <s-list-item>Is all of it encrypted in transit? Yes.</s-list-item>
           <s-list-item>
-            Can people ask for their data to be deleted? Yes: turning off usage
-            data in the app deletes it, and shoppers can ask you about the rest
-            through your privacy policy.
+            Accounts: tick &quot;My app does not allow users to create an
+            account&quot;, then answer No to &quot;Can users login to your app
+            with accounts created outside of the app?&quot; Shoppers don&apos;t
+            sign in to your app at all.
           </s-list-item>
           <s-list-item>
-            Accounts: shoppers can&apos;t create an account in your app.
+            Do you provide a way for users to request that their data is
+            deleted? Yes: turning off usage data in the app deletes it, and
+            shoppers can ask you about the rest through your privacy policy.
           </s-list-item>
         </s-unordered-list>
         <s-paragraph>
-          Then mark these as collected, not shared, and not processed
-          ephemerally. Appsy and Shopify handle the data for you as service
-          providers, which Google doesn&apos;t count as sharing.
+          Under Data types, tick these {DATA_SAFETY_ITEMS.length} and nothing
+          else. They&apos;re in the order Play Console lists them. Under Data
+          usage and handling, mark each one as collected, not shared and not
+          processed ephemerally, with the purpose and choice shown here. Appsy
+          and Shopify handle the data for you as service providers, which Google
+          doesn&apos;t count as sharing.
         </s-paragraph>
         <s-table>
           <s-table-header-row>
@@ -154,6 +160,11 @@ export function PrivacyForms({ appName, policy }: Props) {
             ))}
           </s-table-body>
         </s-table>
+        <s-paragraph>
+          If you send offers to shoppers who agree to them at checkout, also
+          tick Advertising or marketing for Email address, and for Phone number
+          if you send offers by text.
+        </s-paragraph>
 
         <s-divider />
 
@@ -165,17 +176,28 @@ export function PrivacyForms({ appName, policy }: Props) {
             are your store&apos;s own content.
           </s-list-item>
           <s-list-item>
-            <s-text type="strong">Sign-in details:</s-text> nothing to add. No
-            part of your app needs a login.
+            <s-text type="strong">Sign-in details:</s-text> answer No to
+            &quot;Is any part of your app restricted?&quot; No part of your app
+            needs a login, and no content requires payment: shoppers pay only
+            for your products, at checkout.
           </s-list-item>
           <s-list-item>
             <s-text type="strong">Target audience:</s-text> choose your
-            shoppers&apos; age groups. Including children under 13 brings
-            Google&apos;s Families policy.
+            shoppers&apos; age groups: usually 13–15, 16–17 and 18 and over, or
+            only 18 and over if you sell age-restricted products. Leave out the
+            groups under 13: Appsy&apos;s app isn&apos;t made for children, and
+            including them brings Google&apos;s Families policy.
           </s-list-item>
           <s-list-item>
             <s-text type="strong">Content rating:</s-text> answer the
             questionnaire for what your app shows, including your products.
+            &quot;Online content&quot; is Yes: your products load from your
+            store, like Google&apos;s own example, &quot;product listings in the
+            Amazon Shopping app&quot;. Age-restricted products are Yes only if
+            you sell any. Gambling, prizes and cash rewards are No: Appsy&apos;s
+            app gives no rewards, discount codes are just lower prices, and gift
+            cards you sell are products. A wrong Yes there gives your app an 18+
+            rating.
           </s-list-item>
           <s-list-item>
             <s-text type="strong">News apps and COVID-19 apps:</s-text> No.

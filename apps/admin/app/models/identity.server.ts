@@ -19,7 +19,7 @@ import {
   shopifyPicture,
   type Picture,
 } from "./pictures.server";
-import { putPublicFile } from "./storage.server";
+import { putPublicFile, readPublicFile } from "./storage.server";
 
 // The app's name, icon and splash screen: how a build of the merchant's app looks on the
 // phone's home screen and while it opens (the Publishing page, routes/app.publishing.tsx).
@@ -31,15 +31,23 @@ const ANDROID_SAFE = Math.round(ICON_SIZE * ANDROID_SAFE_RATIO);
 // The splash picture is drawn 200 dp wide (apps/mobile/app.config.js); 1024 px stays sharp.
 const SPLASH_MAX = 1024;
 
+export const identityKey = (appProjectId: string) =>
+  `a/${appProjectId}/identity.json`;
+
 export async function loadIdentity(appProjectId: string) {
-  const project = await db.appProject.findUniqueOrThrow({
-    where: { id: appProjectId },
-    select: { appName: true, identity: true },
-  });
+  const [project, file] = await Promise.all([
+    db.appProject.findUniqueOrThrow({
+      where: { id: appProjectId },
+      select: { appName: true, identity: true },
+    }),
+    readPublicFile(identityKey(appProjectId)),
+  ]);
   const parsed = identitySchema.safeParse(project.identity);
   return {
     appName: project.appName,
     settings: parsed.success ? parsed.data : DEFAULT_IDENTITY,
+    // Saved choices without their files (builds read them): saving again makes them.
+    needsSave: parsed.success && file === null,
   };
 }
 
@@ -104,10 +112,7 @@ export async function saveIdentity(
       },
       updatedAt: new Date().toISOString(),
     };
-    await putPublicFile(
-      `a/${appProjectId}/identity.json`,
-      JSON.stringify(manifest),
-    );
+    await putPublicFile(identityKey(appProjectId), JSON.stringify(manifest));
     await db.appProject.update({
       where: { id: appProjectId },
       data: { appName: name, identity: settings },

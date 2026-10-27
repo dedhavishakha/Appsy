@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFetcher } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import type { ImageValue } from "@appsy/app-config";
@@ -17,17 +17,24 @@ import { usePickImage } from "./use-pick-image";
 
 // The app's name, icon and splash screen, on the Publishing page. Unlike the design, they
 // reach the app with its next build (models/identity.server.ts makes the files). Saved
-// with Shopify's save bar, as in the editor (a hidden field carries the choices), or with
-// the section's own Save button: the save bar sits above the page, where merchants
-// testing the build button missed it (2026-10-26).
+// with Shopify's save bar, as in the editor, or with the section's own Save button: the
+// save bar sits above the page, where merchants testing the build button missed it
+// (2026-10-26).
 
 type Saved = { appName: string; settings: IdentitySettings };
+
+const SAVE_BAR_ID = "identity-save-bar";
 
 export function AppIdentity({
   appName: savedName,
   settings: savedSettings,
   filesAccess,
-}: Saved & { filesAccess: boolean }) {
+  needsSave,
+}: Saved & {
+  filesAccess: boolean;
+  // Saved choices whose files for builds are missing: saving again makes them.
+  needsSave: boolean;
+}) {
   const shopify = useAppBridge();
   const pickImage = usePickImage();
   const fetcher = useFetcher<{ issues: IdentityIssue[] }>();
@@ -37,7 +44,6 @@ export function AppIdentity({
   const [savedJson, setSavedJson] = useState(initialJson);
   const [appName, setAppName] = useState(savedName);
   const [settings, setSettings] = useState(savedSettings);
-  const choices = useRef<HTMLInputElement>(null);
   const pendingJson = useRef<string | null>(null);
 
   const json = JSON.stringify({ appName, settings });
@@ -48,14 +54,14 @@ export function AppIdentity({
     issues.find((issue) => issue.field === field)?.message;
   const general = issues.filter((issue) => issue.field === null);
 
-  // Shopify's save bar watches the form's fields (Save Bar docs: a hidden input bridges
-  // React state to data-save-bar).
+  // Shopify's save bar shows while the choices differ from the saved ones (Save Bar API,
+  // programmatic), and goes with the page.
   useEffect(() => {
-    const input = choices.current;
-    if (!input || input.value === json) return;
-    input.value = json;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  }, [json]);
+    void (dirty
+      ? shopify.saveBar.show(SAVE_BAR_ID)
+      : shopify.saveBar.hide(SAVE_BAR_ID));
+  }, [dirty, shopify]);
+  useEffect(() => () => void shopify.saveBar.hide(SAVE_BAR_ID), [shopify]);
 
   useEffect(() => {
     if (
@@ -66,16 +72,7 @@ export function AppIdentity({
       return;
     if (fetcher.data.issues.length === 0) {
       setSavedJson(pendingJson.current);
-      if (choices.current) {
-        // Saved values are the form's new starting point, so the save bar hides too when
-        // the section's Save button was used.
-        choices.current.defaultValue = pendingJson.current;
-        choices.current.dispatchEvent(new Event("input", { bubbles: true }));
-      }
       shopify.toast.show("Saved. Your app gets these with its next build.");
-    } else {
-      // Nothing was saved, so bring the save bar back.
-      choices.current?.dispatchEvent(new Event("input", { bubbles: true }));
     }
     pendingJson.current = null;
   }, [fetcher.state, fetcher.data, shopify]);
@@ -86,10 +83,6 @@ export function AppIdentity({
       { intent: "identity", appName, settings: JSON.stringify(settings) },
       { method: "POST" },
     );
-  };
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    save();
   };
 
   const discard = () => {
@@ -109,19 +102,15 @@ export function AppIdentity({
 
   return (
     <s-section heading="App name and icon">
-      <form
-        data-save-bar
-        data-discard-confirmation
-        onSubmit={submit}
-        onReset={discard}
-      >
-        <input
-          ref={choices}
-          type="hidden"
-          name="identity"
-          defaultValue={initialJson}
-        />
-      </form>
+      {/* Discard asks first. */}
+      <ui-save-bar id={SAVE_BAR_ID} discardConfirmation>
+        <button variant="primary" disabled={busy} onClick={save}>
+          Save
+        </button>
+        <button disabled={busy} onClick={discard}>
+          Discard
+        </button>
+      </ui-save-bar>
       <s-stack gap="base">
         <s-paragraph color="subdued">
           These reach your app with its next build. Design changes you publish
@@ -197,14 +186,18 @@ export function AppIdentity({
         <s-stack direction="inline" gap="small" alignItems="center">
           <s-button
             variant="primary"
-            disabled={!dirty || busy || undefined}
+            disabled={(!dirty && !needsSave) || busy || undefined}
             loading={busy || undefined}
             onClick={save}
           >
             Save app name and icon
           </s-button>
-          {dirty && !busy && (
-            <s-text color="subdued">You have unsaved changes.</s-text>
+          {!busy && (dirty || needsSave) && (
+            <s-text color="subdued">
+              {dirty
+                ? "You have unsaved changes."
+                : "Save once more, so your next build includes these."}
+            </s-text>
           )}
         </s-stack>
       </s-stack>

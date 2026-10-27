@@ -22,7 +22,9 @@ name = "Appsy"
 # read_only_own_orders (analytics' orders and sales; it reads only the orders the channel created)
 # isn't listed here: App Store requirement 5.7.1 says Shopify adds it during review, and the CLI
 # refuses it in this file ("These scopes are invalid", tried on the development store 2026-10-16).
-scopes = "read_products,read_product_listings,read_publications,read_files,read_online_store_navigation,unauthenticated_read_product_listings,unauthenticated_read_product_inventory,unauthenticated_read_product_tags,unauthenticated_read_metaobjects,unauthenticated_read_content,unauthenticated_read_checkouts,unauthenticated_write_checkouts,unauthenticated_read_selling_plans"
+# write_resource_feedbacks: the "publish your design" step on the merchant's admin home
+# (shopResourceFeedbackCreate, App Store requirement 5.7.3; added 2026-10-27).
+scopes = "read_products,read_product_listings,read_publications,read_files,read_online_store_navigation,unauthenticated_read_product_listings,unauthenticated_read_product_inventory,unauthenticated_read_product_tags,unauthenticated_read_metaobjects,unauthenticated_read_content,unauthenticated_read_checkouts,unauthenticated_write_checkouts,unauthenticated_read_selling_plans,write_resource_feedbacks"
 
 [webhooks]
 # A stable version, the same as the rest of the app (app/shopify.server.ts); 2027-01 is a

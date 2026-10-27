@@ -3,7 +3,8 @@
 
 // starting → building → uploading → uploaded, or uploaded_draft (a release the merchant
 // rolls out in Play Console); failed when the build fails, upload_failed when only the
-// upload does (the app file can then be uploaded again, or by hand).
+// upload does (the app file can then be uploaded again, or by hand), upload_refused when
+// Google Play already has that version (only a new build helps).
 export type BuildStatus =
   | "starting"
   | "building"
@@ -11,6 +12,7 @@ export type BuildStatus =
   | "uploaded"
   | "uploaded_draft"
   | "upload_failed"
+  | "upload_refused"
   | "failed";
 
 // Builds that are still moving along.

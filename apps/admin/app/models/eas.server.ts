@@ -280,7 +280,8 @@ export async function viewBuild(easBuildId: string) {
 
 // Uploads a finished build to Google Play's internal testing track and waits for Google
 // Play's answer. When Google Play takes only draft releases, uploads it as a draft, which
-// the merchant rolls out in Play Console.
+// the merchant rolls out in Play Console. An error is the CLI's whole output, for the
+// server's log; builds.server.ts turns it into a message for the merchant.
 export async function submitToGooglePlay(
   easBuildId: string,
   app: MerchantApp,
@@ -306,13 +307,16 @@ export async function submitToGooglePlay(
         app.appId,
         30 * 60_000,
       );
+    const output = (run: Run) => `${run.stdout}\n${run.stderr}`;
     const first = await submit(SUBMIT_PROFILE);
     if (first.code === 0) return { draft: false };
-    const output = `${first.stdout}\n${first.stderr}`;
-    if (!/draft app|status draft/i.test(output))
-      return { error: lastLines(first) };
+    // The first try is a completed release, so "draft" in its answer means Google Play
+    // takes only drafts for this app, whether in Google's words ("Only releases with
+    // status draft may be created on draft app") or Expo's own (eas-cli prints its message
+    // for errors it knows, not Google's).
+    if (!/\bdraft\b/i.test(output(first))) return { error: output(first) };
     const draft = await submit(DRAFT_SUBMIT_PROFILE);
-    return draft.code === 0 ? { draft: true } : { error: lastLines(draft) };
+    return draft.code === 0 ? { draft: true } : { error: output(draft) };
   } finally {
     await removeWorkspace(root);
   }

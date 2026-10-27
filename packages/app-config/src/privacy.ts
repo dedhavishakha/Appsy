@@ -118,28 +118,8 @@ const atCheckout = (category: string, type: string, what: string): DataSafetyIte
   optional: false,
 });
 
+// In the order Play Console lists them under Data types, so stores can tick them from the top.
 export const DATA_SAFETY_ITEMS: DataSafetyItem[] = [
-  {
-    category: "App activity",
-    type: "App interactions",
-    what: `Usage data, after the shopper allows it: ${MERCHANT_EVENTS}, with their times.`,
-    purpose: "Analytics",
-    optional: true,
-  },
-  {
-    category: "Device or other IDs",
-    type: "Device or other IDs",
-    what: "The random ID the app creates when the shopper allows usage data.",
-    purpose: "Analytics",
-    optional: true,
-  },
-  {
-    category: "App activity",
-    type: "In-app search history",
-    what: "The words shoppers search for, sent to Shopify to find products.",
-    purpose: "App functionality",
-    optional: false,
-  },
   atCheckout("Personal info", "Name", "Entered at checkout."),
   atCheckout("Personal info", "Email address", "Entered at checkout."),
   atCheckout("Personal info", "Address", "The delivery address entered at checkout."),
@@ -150,4 +130,25 @@ export const DATA_SAFETY_ITEMS: DataSafetyItem[] = [
     "Card or other payment details entered at checkout.",
   ),
   atCheckout("Financial info", "Purchase history", "The bag and the order placed at checkout."),
+  {
+    category: "App activity",
+    type: "App interactions",
+    what: `Usage data, after the shopper allows it: ${MERCHANT_EVENTS}, with their times.`,
+    purpose: "Analytics",
+    optional: true,
+  },
+  {
+    category: "App activity",
+    type: "In-app search history",
+    what: "The words shoppers search for, sent to Shopify to find products.",
+    purpose: "App functionality",
+    optional: false,
+  },
+  {
+    category: "Device or other IDs",
+    type: "Device or other IDs",
+    what: "The random ID the app creates when the shopper allows usage data.",
+    purpose: "Analytics",
+    optional: true,
+  },
 ];

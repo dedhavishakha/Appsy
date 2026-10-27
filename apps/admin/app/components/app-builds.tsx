@@ -26,6 +26,7 @@ const STATUS: Record<
   uploaded: { label: "On internal testing", tone: "success" },
   uploaded_draft: { label: "Draft release", tone: "warning" },
   upload_failed: { label: "Upload didn't work", tone: "critical" },
+  upload_refused: { label: "Google Play has this version", tone: "warning" },
   failed: { label: "Build failed", tone: "critical" },
 };
 

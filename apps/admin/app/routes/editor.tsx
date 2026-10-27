@@ -1,11 +1,4 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   ActionFunctionArgs,
   HeadersFunction,
@@ -192,6 +185,8 @@ const PAGES: { name: PageName; label: string }[] = [
 
 type Selection = { sectionId: string; blockId?: string } | null;
 
+const SAVE_BAR_ID = "design-save-bar";
+
 // The product and collection that the Product and Collection pages show in the preview.
 type Samples = Record<"product" | "collection", PreviewItem | null>;
 
@@ -216,11 +211,7 @@ function Editor() {
     product: preview?.product ?? null,
     collection: preview?.collection ?? null,
   });
-  const designForm = useRef<HTMLFormElement>(null);
-  const designInput = useRef<HTMLInputElement>(null);
   const pendingJson = useRef<string | null>(null);
-  // Set by Publish, so the form's next submit publishes as well as saves.
-  const publishNext = useRef(false);
 
   const designJson = useMemo(() => JSON.stringify(design), [design]);
   const dirty = designJson !== savedJson;
@@ -229,14 +220,14 @@ function Editor() {
   const result = busy ? undefined : fetcher.data;
   const issues = result?.issues ?? [];
 
-  // Shopify's save bar watches the form's fields, so this hidden one carries the design
-  // (Shopify's Save Bar docs: a hidden input bridges React state to data-save-bar).
+  // Shopify's save bar shows while the design differs from the saved one (Save Bar API,
+  // programmatic). A form's data-save-bar can't see changes in a hidden field, which is
+  // why it stayed away until the first save (found 2026-10-26).
   useEffect(() => {
-    const input = designInput.current;
-    if (!input || input.value === designJson) return;
-    input.value = designJson;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  }, [designJson]);
+    void (dirty
+      ? shopify.saveBar.show(SAVE_BAR_ID)
+      : shopify.saveBar.hide(SAVE_BAR_ID));
+  }, [dirty, shopify]);
 
   useEffect(() => {
     shopify.loading(busy);
@@ -250,12 +241,7 @@ function Editor() {
     )
       return;
     const { intent, saved, issues, number } = fetcher.data;
-    if (saved) {
-      setSavedJson(pendingJson.current);
-    } else {
-      // Nothing was saved, so bring the save bar back.
-      designInput.current?.dispatchEvent(new Event("input", { bubbles: true }));
-    }
+    if (saved) setSavedJson(pendingJson.current);
     if (issues.length === 0) {
       shopify.toast.show(
         intent === "publish" ? `Version ${number} is live` : "Saved",
@@ -264,22 +250,13 @@ function Editor() {
     pendingJson.current = null;
   }, [fetcher.state, fetcher.data, shopify]);
 
-  // Shopify's save bar, Save and Publish all submit the form, so the save bar always
-  // knows the changes were sent.
-  const submitDesign = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const intent = publishNext.current ? "publish" : "save";
-    publishNext.current = false;
+  // Publish saves first, then publishes.
+  const send = (intent: "save" | "publish") => {
     pendingJson.current = designJson;
     fetcher.submit({ intent, design: designJson }, { method: "POST" });
   };
-
-  const save = () => designForm.current?.requestSubmit();
-
-  const publish = () => {
-    publishNext.current = true;
-    designForm.current?.requestSubmit();
-  };
+  const save = () => send("save");
+  const publish = () => send("publish");
 
   const discard = () => {
     setDesign(JSON.parse(savedJson) as AppDesign);
@@ -584,22 +561,16 @@ function Editor() {
           : "Live"}
       </s-badge>
 
-      {/* Shopify's save bar: Save and Discard appear while there are unsaved changes, and
-          closing the window asks first. */}
-      <form
-        ref={designForm}
-        data-save-bar
-        data-discard-confirmation
-        onSubmit={submitDesign}
-        onReset={discard}
-      >
-        <input
-          ref={designInput}
-          type="hidden"
-          name="design"
-          defaultValue={initialJson}
-        />
-      </form>
+      {/* Shopify's save bar: Save and Discard while there are unsaved changes. Discard
+          asks first. */}
+      <ui-save-bar id={SAVE_BAR_ID} discardConfirmation>
+        <button variant="primary" disabled={busy} onClick={save}>
+          Save
+        </button>
+        <button disabled={busy} onClick={discard}>
+          Discard
+        </button>
+      </ui-save-bar>
 
       <s-stack gap="base">
         {issues.length > 0 && (
@@ -650,7 +621,7 @@ function Editor() {
                   {/* While there are unsaved changes, Shopify's save bar covers the title bar. */}
                   <s-text color="subdued">
                     {dirty
-                      ? "Unsaved changes. Press Save at the top, or Publish to save and send them to your app."
+                      ? "Unsaved changes. Press Save at the top, then Publish to send them to your app."
                       : status.hasDraft
                         ? "Saved. Press Publish to send these changes to your app."
                         : "Your app shows this design."}

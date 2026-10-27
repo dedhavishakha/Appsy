@@ -231,6 +231,7 @@ export default function Publishing() {
         appName={identity.appName}
         settings={identity.settings}
         filesAccess={filesAccess}
+        needsSave={identity.needsSave}
       />
 
       <StoreAccountsSection
@@ -353,16 +354,19 @@ export default function Publishing() {
       <s-section heading="Google Play">
         <s-ordered-list>
           <s-list-item>
-            In Play Console, choose Create app. Enter your app&apos;s name and
-            default language, choose app and free, add a support email, accept
-            the declarations, then click Create app.
+            In Play Console, choose Create app. Enter your app&apos;s name, and
+            for the package name your App ID exactly as it shows under Store
+            accounts above: package names can&apos;t be changed or used again.
+            Choose the default language, app and free, add a support email,
+            accept the declarations, then click Create app.
           </s-list-item>
           <s-list-item>
             Let Appsy upload your app: create a service account in Google Cloud
             with a JSON key, enable the Google Play Android Developer API, and
             invite the service account in Play Console&apos;s Users and
-            permissions with release permissions for your app. Upload the JSON
-            key file under Store accounts above.
+            permissions. Under App permissions, add your app with &quot;Release
+            apps to testing tracks&quot;. Upload the JSON key file under Store
+            accounts above.
           </s-list-item>
           <s-list-item>
             Click Build Android app under Build and upload above. Appsy builds
@@ -371,9 +375,16 @@ export default function Publishing() {
           </s-list-item>
           <s-list-item>
             Complete the dashboard tasks: app content, with the answers under
-            Privacy and Google Play forms below, and the store listing (a name
-            of up to 30 characters, a short description of up to 80 and a full
-            description of up to 4,000).
+            Privacy and Google Play forms below, and the main store listing.
+            Google asks that your name (up to 30 characters) and descriptions
+            (up to 80 and 4,000) &quot;accurately describe your app&apos;s
+            functionality&quot;, so describe only what your app shows, and keep
+            emojis, ALL CAPS (unless it&apos;s your brand) and words like
+            &quot;best&quot;, &quot;#1&quot; or &quot;free&quot; out of the
+            name. Add a 512 × 512 px PNG icon (up to 1 MB), a 1024 × 500 px
+            feature graphic and at least two screenshots of your app. A
+            screenshot&apos;s long side can be at most twice its short side, so
+            crop phone screenshots if needed, for example to 1080 × 1920 px.
           </s-list-item>
           <s-list-item>
             Personal account created after November 13, 2023? Run a closed test

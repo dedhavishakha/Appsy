@@ -27,7 +27,7 @@ import { FEATURE_MANIFESTS } from "@appsy/features/manifests";
 import { SECTION_MANIFESTS } from "@appsy/sections/manifests";
 import db from "../db.server";
 import { apiVersion } from "../shopify.server";
-import { loadChannel } from "./channel.server";
+import { loadChannel, reportSetup } from "./channel.server";
 import type { ShopSetup } from "./shop.server";
 import { publicUrl, putPublicFile } from "./storage.server";
 import { storefrontQuery } from "./storefront.server";
@@ -443,6 +443,8 @@ export async function publishDraft(
       },
     }),
   ]);
+  // Clears the "publish your design" step on the merchant's Shopify admin home.
+  await reportSetup(admin, true);
   return {
     issues: [],
     number: draft.number,
