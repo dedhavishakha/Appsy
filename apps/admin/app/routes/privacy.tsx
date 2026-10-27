@@ -1,16 +1,18 @@
 import type { MetaFunction } from "react-router";
+import { USAGE_DATA_KEEP_MONTHS } from "@appsy/app-config";
 import { LegalDocument } from "../components/public-page";
 
 // Appsy's own privacy policy (separate from each store's policy, which its app also links
 // to). A DRAFT written 2026-10-21 from the data Appsy handles today (docs/05, sections 7 and
 // 9); Scopegen fills in the [bracketed] details and has a lawyer review it before launch.
-// Keep it in step with the code: a new kind of data means a change here first.
+// Keep it in step with the code: a new kind of data means a change here first, and in the
+// section stores add to their own policy (packages/app-config/src/privacy.ts).
 
 export const meta: MetaFunction = () => [{ title: "Appsy privacy policy" }];
 
 export default function Privacy() {
   return (
-    <LegalDocument title="Appsy privacy policy" updated="21 October 2026">
+    <LegalDocument title="Appsy privacy policy" updated="27 October 2026">
       <h2>1. Who we are</h2>
       <p>
         Appsy is made by [Scopegen&apos;s legal name], of [registered address]
@@ -60,7 +62,8 @@ export default function Privacy() {
         <li>
           The shopper can change this choice at any time under Privacy choices
           in the app&apos;s menu. Turning it off deletes the install ID and any
-          unsent events from the phone.
+          unsent events from the phone, and we delete the events that phone
+          already sent.
         </li>
         <li>
           The wishlist and the shopper&apos;s chosen country and currency stay
@@ -110,7 +113,10 @@ export default function Privacy() {
 
       <h2>6. How long we keep data</h2>
       <ul>
-        <li>Usage events: up to 13 months, then deleted.</li>
+        <li>
+          Usage events: up to {USAGE_DATA_KEEP_MONTHS} months, then deleted, or
+          sooner when the shopper turns usage data off.
+        </li>
         <li>
           Store data: erased when Shopify asks us to, 48 hours after you
           uninstall Appsy.

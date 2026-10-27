@@ -18,6 +18,9 @@ import { Text } from "./text";
 const CONSENT_KEY = "appsy.consent.analytics";
 const DEVICE_KEY = "appsy.device";
 const QUEUE_KEY = "appsy.events";
+// Install ids whose usage data Appsy hasn't confirmed deleting yet.
+const FORGET_KEY = "appsy.forget";
+const MAX_FORGOTTEN = 20;
 
 // A new session after 30 minutes away from the app.
 const SESSION_GAP_MS = 30 * 60 * 1000;
@@ -55,7 +58,9 @@ function done(status: number) {
 
 // Usage analytics (docs/03, section J), only with the shopper's consent: the app asks the
 // first time it opens, and Privacy choices in the side menu changes the answer. Events wait
-// on the phone and go to Appsy in batches. The editor's preview never asks or sends.
+// on the phone and go to Appsy in batches. Turning it off asks Appsy to delete what this
+// install sent, again at each start until Appsy confirms. The editor's preview never asks
+// or sends.
 export function AnalyticsProvider({ children }: { children: ReactNode }) {
   const settings = useSettings();
   const endpoint = isPreview ? undefined : settings.links.events;
@@ -65,6 +70,10 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
   const session = useRef<{ id: string; lastSeen: number } | null>(null);
   const queue = useRef<QueuedEvent[]>([]);
   const sending = useRef(false);
+  // The latest batch on its way, settled either way: deleting waits for it to land first.
+  const lastSend = useRef<Promise<unknown>>(Promise.resolve());
+  const forgotten = useRef<string[]>([]);
+  const forgetting = useRef(false);
   const granted = consent === "granted";
 
   useEffect(() => {
@@ -72,11 +81,16 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
       AsyncStorage.getItem(CONSENT_KEY),
       AsyncStorage.getItem(DEVICE_KEY),
       AsyncStorage.getItem(QUEUE_KEY),
+      AsyncStorage.getItem(FORGET_KEY),
     ])
-      .then(([answer, id, saved]) => {
+      .then(([answer, id, saved, ids]) => {
         device.current = id;
         const list: unknown = saved ? JSON.parse(saved) : [];
         queue.current = Array.isArray(list) ? (list as QueuedEvent[]) : [];
+        const pending: unknown = ids ? JSON.parse(ids) : [];
+        forgotten.current = Array.isArray(pending)
+          ? pending.filter((item): item is string => typeof item === "string")
+          : [];
         setConsentState(answer === "granted" || answer === "denied" ? answer : "unknown");
       })
       .catch(() => {})
@@ -89,11 +103,13 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
     sending.current = true;
     const batch = queue.current.slice(0, BATCH_SIZE);
     try {
-      const response = await fetch(endpoint, {
+      const request = fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deviceId, events: batch }),
       });
+      lastSend.current = request.catch(() => {});
+      const response = await request;
       if (done(response.status)) {
         queue.current = queue.current.slice(batch.length);
         AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue.current)).catch(() => {});
@@ -104,6 +120,41 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
       sending.current = false;
     }
   }, [endpoint]);
+
+  // Asks Appsy to delete everything each forgotten install sent (the admin server's
+  // routes/api.events.$appId_.forget.tsx). An id stays on the phone until Appsy confirms.
+  const forget = useCallback(async () => {
+    if (!endpoint || forgetting.current) return;
+    forgetting.current = true;
+    // Each id once per run, including ids forgotten while it runs.
+    const tried = new Set<string>();
+    try {
+      for (;;) {
+        const deviceId = forgotten.current.find((id) => !tried.has(id));
+        if (!deviceId) break;
+        tried.add(deviceId);
+        await lastSend.current;
+        const status = await fetch(`${endpoint}/forget`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deviceId }),
+        }).then(
+          (response) => response.status,
+          () => null,
+        );
+        if (status === null || !done(status)) continue;
+        forgotten.current = forgotten.current.filter((id) => id !== deviceId);
+        AsyncStorage.setItem(FORGET_KEY, JSON.stringify(forgotten.current)).catch(() => {});
+      }
+    } finally {
+      forgetting.current = false;
+    }
+  }, [endpoint]);
+
+  // Deletions that didn't get through before, when the app starts.
+  useEffect(() => {
+    if (loaded) void forget();
+  }, [loaded, forget]);
 
   // Adds an event, first opening a session (with app_open) when there's none or the last
   // one ended.
@@ -143,11 +194,19 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
       setConsentState(allowed ? "granted" : "denied");
       AsyncStorage.setItem(CONSENT_KEY, allowed ? "granted" : "denied").catch(() => {});
       if (!allowed) {
-        // Declining forgets the install id and anything not yet sent.
+        // Declining forgets the install id and anything not yet sent, and asks Appsy to
+        // delete what was sent. The id is saved for that before it's removed.
+        const id = device.current;
         device.current = null;
         session.current = null;
         queue.current = [];
-        AsyncStorage.multiRemove([DEVICE_KEY, QUEUE_KEY]).catch(() => {});
+        if (id && endpoint) {
+          forgotten.current = [...forgotten.current, id].slice(-MAX_FORGOTTEN);
+        }
+        AsyncStorage.setItem(FORGET_KEY, JSON.stringify(forgotten.current))
+          .catch(() => {})
+          .finally(() => AsyncStorage.multiRemove([DEVICE_KEY, QUEUE_KEY]).catch(() => {}));
+        void forget();
         return;
       }
       if (!device.current) {
@@ -156,7 +215,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
         if (endpoint) record("first_open", {});
       }
     },
-    [endpoint, record],
+    [endpoint, record, forget],
   );
 
   // A session when the app starts and when it returns after a long break; events go

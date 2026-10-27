@@ -1,5 +1,6 @@
 export * from "./version";
 export * from "./analytics";
+export * from "./privacy";
 export * from "./fields";
 export * from "./inputs";
 export * from "./design";

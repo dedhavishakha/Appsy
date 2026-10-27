@@ -141,7 +141,9 @@ model AppBuild {
 // A usage event from a merchant's app, sent only after the shopper allows it
 // (packages/app-config/src/analytics.ts). No names, emails or typed text: a random install
 // id, a session id, and product, collection or variant ids. Kept 13 months (your decision,
-// 2026-10-16); daily totals are kept after that. Deleted with the app (shop/redact).
+// 2026-10-16), and deleted sooner when the shopper turns usage data off or with the app
+// (shop/redact): models/usage-data.server.ts. The daily totals decided to outlive them
+// aren't kept yet; the first events turn 13 months old in November 2027.
 model AnalyticsEvent {
   id           BigInt     @id @default(autoincrement())
   appProjectId String     @db.Uuid
@@ -154,6 +156,8 @@ model AnalyticsEvent {
   receivedAt   DateTime   @default(now())
 
   @@index([appProjectId, occurredAt])
+  // Deleting one install's events when its shopper turns usage data off.
+  @@index([deviceId])
 }
 
 // Every saved design, numbered 1, 2, 3… per app. Publishing turns the draft into the

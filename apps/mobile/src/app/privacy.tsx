@@ -23,7 +23,8 @@ export default function PrivacyScreen() {
           <Text style={[styles.label, { color: colors.text }]}>Share usage data</Text>
           <Text style={[styles.note, { color: colors.text }]}>
             Anonymous data about how you use the app, like which products you view and add to
-            your bag, helps {name} improve it. It's never linked to your name or email.
+            your bag, helps {name} improve it. It's never linked to your name or email. Turning
+            it off also deletes the usage data this phone has sent.
           </Text>
         </View>
         <Switch

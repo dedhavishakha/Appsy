@@ -7,12 +7,14 @@ import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppBuilds } from "../components/app-builds";
 import { AppIdentity } from "../components/app-identity";
+import { PrivacyForms } from "../components/privacy-forms";
 import { StoreAccountsSection } from "../components/store-accounts";
 import { authenticate } from "../shopify.server";
 import type { BuildIntent, BuildResult } from "../models/builds";
 import { loadBuilds, startBuild, uploadAgain } from "../models/builds.server";
 import { loadIdentity, saveIdentity } from "../models/identity.server";
 import type { IdentityIssue } from "../models/identity";
+import { loadPrivacyPolicy } from "../models/privacy-policy.server";
 import { ensureShopSetup } from "../models/shop.server";
 import type { StoreIntent, StoreResult } from "../models/store-accounts";
 import {
@@ -29,9 +31,10 @@ import {
 // App ID and store accounts Appsy builds and uploads with (components/store-accounts.tsx),
 // building the app and uploading it for testing (components/app-builds.tsx), then how
 // merchants publish their app on the App Store and Google Play, with the wait times and
-// requirements (App Store requirement 5.9.2). Store listings are the merchant's, filled in
-// App Store Connect and Play Console themselves (decided 2026-10-22). The guide's source is
-// docs/06; every figure links to the official page it comes from (checked 2026-10-21).
+// requirements (App Store requirement 5.9.2), and the privacy answers Google asks for
+// (components/privacy-forms.tsx). Store listings are the merchant's, filled in App Store
+// Connect and Play Console themselves (decided 2026-10-22). The guide's source is docs/06;
+// every figure links to the official page it comes from (checked 2026-10-21).
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session, scopes } = await authenticate.admin(request);
@@ -48,12 +51,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const filesAccess =
     granted === null ||
     ["read_files", "write_files"].some((name) => granted.includes(name));
-  const [identity, store, builds] = await Promise.all([
+  const [identity, store, builds, privacyPolicy] = await Promise.all([
     loadIdentity(shop.appProject.id),
     loadStoreAccounts(shop.appProject.id, session.shop),
     loadBuilds(shop.appProject.id),
+    loadPrivacyPolicy(shop),
   ]);
-  return { identity, store, builds, filesAccess };
+  return { identity, store, builds, privacyPolicy, filesAccess };
 };
 
 // Each part of the page posts its own intent: "identity" for the name and icon, the
@@ -218,7 +222,7 @@ const WAIT_TIMES = [
 ];
 
 export default function Publishing() {
-  const { identity, store, builds, filesAccess } =
+  const { identity, store, builds, privacyPolicy, filesAccess } =
     useLoaderData<typeof loader>();
 
   return (
@@ -366,9 +370,10 @@ export default function Publishing() {
             testers (up to 100) install it from Google Play.
           </s-list-item>
           <s-list-item>
-            Complete the dashboard tasks: app content (including the Data safety
-            form) and the store listing (a name of up to 30 characters, a short
-            description of up to 80 and a full description of up to 4,000).
+            Complete the dashboard tasks: app content, with the answers under
+            Privacy and Google Play forms below, and the store listing (a name
+            of up to 30 characters, a short description of up to 80 and a full
+            description of up to 4,000).
           </s-list-item>
           <s-list-item>
             Personal account created after November 13, 2023? Run a closed test
@@ -380,6 +385,8 @@ export default function Publishing() {
           </s-list-item>
         </s-ordered-list>
       </s-section>
+
+      <PrivacyForms appName={identity.appName} policy={privacyPolicy} />
 
       <s-section heading="Keeping your app up to date">
         <s-paragraph>

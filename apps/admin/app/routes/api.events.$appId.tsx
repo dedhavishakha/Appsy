@@ -6,7 +6,8 @@ import db from "../db.server";
 // Usage events from merchant apps (docs/04, section 7). Public like the published design:
 // phones send events only after the shopper allows it, and the events hold no names, emails
 // or typed text. Events this version doesn't know, or that don't match their format, are
-// dropped and the rest kept, so phones on other runtime versions keep working.
+// dropped and the rest kept, so phones on other runtime versions keep working. How long
+// they're kept, and deleting them on request: models/usage-data.server.ts.
 
 const MAX_BODY_BYTES = 64 * 1024;
 // Batches per install per minute. A phone sends one every 20 seconds at most.
