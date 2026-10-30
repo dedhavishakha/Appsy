@@ -22,6 +22,7 @@ import { openCheckout } from "@/lib/checkout";
 import { useMoney } from "@/lib/currency";
 import { formatMoney, imageUrl, type Money } from "@/lib/format";
 import { BORDER } from "@/lib/menu-drawer";
+import { usePush } from "@/lib/push";
 import type { Cart, CartLine } from "@/lib/queries";
 
 // The bag, and the way to Shopify's checkout with its items already loaded (rule 5.7.14).
@@ -36,6 +37,7 @@ export default function CartScreen() {
   const { setQuantity } = useCartActions();
   const codeStart = useCodeStart();
   const { track, trackGa4 } = useAnalytics();
+  const { orderPlaced } = usePush();
   const [opening, setOpening] = useState(false);
 
   // Shopify's own checkout, with Checkout Kit in phone builds and the in-app browser
@@ -51,7 +53,9 @@ export default function CartScreen() {
     trackGa4(ga4BeginCheckout(currency, items, coupon));
     setOpening(true);
     try {
-      await openCheckout(cart, (order) =>
+      await openCheckout(cart, (order) => {
+        // The bag was bought, so its reminder goes.
+        orderPlaced();
         trackGa4(
           ga4Purchase({
             orderId: order.id,
@@ -61,8 +65,8 @@ export default function CartScreen() {
             tax: order.tax,
             shipping: order.shipping,
           }),
-        ),
-      );
+        );
+      });
     } finally {
       setOpening(false);
       // After an order, Shopify ends the cart, so refetching empties the bag.

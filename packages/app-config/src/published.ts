@@ -21,6 +21,9 @@ const linksSchema = z.object({
   // Where the app sends usage events once the shopper allows it (analytics.ts). Files
   // published before analytics, and the editor's preview, have none, so nothing is sent.
   events: httpsUrl.optional(),
+  // Where the app registers for push notifications once the shopper allows them (push.ts).
+  // Files written before push notifications have none, and the app then doesn't register.
+  push: httpsUrl.optional(),
 });
 
 // The app's own identity, from Appsy's setup guide. Its name shows in the header when there's

@@ -10,6 +10,7 @@ import { BagButton } from "@/components/bag-button";
 import { CountryProvider } from "@/components/country-provider";
 import { CurrencyProvider } from "@/components/currency-provider";
 import { MenuDrawerProvider } from "@/components/menu-drawer";
+import { PushProvider } from "@/components/push-provider";
 import { Text } from "@/components/text";
 import { WishlistProvider } from "@/components/wishlist-provider";
 import { SettingsContext } from "@/lib/app-settings";
@@ -102,34 +103,36 @@ function DesignGate() {
           <CountryProvider>
             <CurrencyProvider>
               <WishlistProvider>
-                <MenuDrawerProvider>
-                  <Stack
-                    screenOptions={{
-                      headerShadowVisible: false,
-                      headerTitleAlign: "center",
-                      headerTintColor: colors.text,
-                      // Titles such as "Your bag" in the heading font, once it's loaded.
-                      headerTitleStyle: typography.heading
-                        ? { fontFamily: typography.heading.bold }
-                        : undefined,
-                      headerStyle: { backgroundColor: colors.background },
-                      contentStyle: { backgroundColor: colors.background },
-                      headerRight: () => <BagButton />,
-                    }}
-                  >
-                    {/* Home, Shop, Search and Wishlist, with the tab bar (app/(tabs)). */}
-                    <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Home" }} />
-                    <Stack.Screen name="collections/[handle]" options={{ title: "" }} />
-                    <Stack.Screen name="products/[handle]" options={{ title: "" }} />
-                    <Stack.Screen name="cart" options={modal("Your bag")} />
-                    <Stack.Screen name="country" options={modal("Country or region")} />
-                    <Stack.Screen name="currency" options={modal("Currency")} />
-                    <Stack.Screen name="privacy" options={modal("Privacy choices")} />
-                    <Stack.Screen name="licences" options={modal("Open-source licences")} />
-                    <Stack.Screen name="size-chart" options={modal("Size chart")} />
-                  </Stack>
-                  {isPreview && <PreviewNavigator request={preview.navigation} />}
-                </MenuDrawerProvider>
+                <PushProvider>
+                  <MenuDrawerProvider>
+                    <Stack
+                      screenOptions={{
+                        headerShadowVisible: false,
+                        headerTitleAlign: "center",
+                        headerTintColor: colors.text,
+                        // Titles such as "Your bag" in the heading font, once it's loaded.
+                        headerTitleStyle: typography.heading
+                          ? { fontFamily: typography.heading.bold }
+                          : undefined,
+                        headerStyle: { backgroundColor: colors.background },
+                        contentStyle: { backgroundColor: colors.background },
+                        headerRight: () => <BagButton />,
+                      }}
+                    >
+                      {/* Home, Shop, Search and Wishlist, with the tab bar (app/(tabs)). */}
+                      <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Home" }} />
+                      <Stack.Screen name="collections/[handle]" options={{ title: "" }} />
+                      <Stack.Screen name="products/[handle]" options={{ title: "" }} />
+                      <Stack.Screen name="cart" options={modal("Your bag")} />
+                      <Stack.Screen name="country" options={modal("Country or region")} />
+                      <Stack.Screen name="currency" options={modal("Currency")} />
+                      <Stack.Screen name="privacy" options={modal("Privacy choices")} />
+                      <Stack.Screen name="licences" options={modal("Open-source licences")} />
+                      <Stack.Screen name="size-chart" options={modal("Size chart")} />
+                    </Stack>
+                    {isPreview && <PreviewNavigator request={preview.navigation} />}
+                  </MenuDrawerProvider>
+                </PushProvider>
               </WishlistProvider>
             </CurrencyProvider>
           </CountryProvider>

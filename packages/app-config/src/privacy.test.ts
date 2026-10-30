@@ -41,6 +41,17 @@ describe("the section stores add to their privacy policy", () => {
     expect(withGa4).toContain("Google Analytics. If you allow usage data");
     expect(withGa4).not.toMatch(/ {2}|\n{3}|^ | $/m);
   });
+
+  it("mentions notifications only for stores that send them", () => {
+    expect(text).not.toContain("Notifications.");
+    expect(text).not.toContain("notification address");
+    const withPush = appPolicyText("Local noodle", { pushNotifications: true });
+    expect(withPush).toContain("Notifications. The app asks before it sends you notifications.");
+    expect(withPush).toContain("your bag isn't sent to us");
+    expect(withPush).toContain("usage data and notification addresses can be reached only");
+    expect(withPush).toContain("270 days after the app was last opened on it");
+    expect(withPush).not.toMatch(/ {2}|\n{3}|^ | $/m);
+  });
 });
 
 describe("Data safety answers", () => {
@@ -63,8 +74,27 @@ describe("Data safety answers", () => {
     ]);
   });
 
+  it("add notification purposes to device IDs when push notifications are on", () => {
+    const items = dataSafetyItems({ pushNotifications: true });
+    expect(items.map((item) => item.type)).toEqual(DATA_SAFETY_ITEMS.map((item) => item.type));
+    const ids = items.find((item) => item.type === "Device or other IDs");
+    expect(ids).toMatchObject({
+      purposes: ["Analytics", "Developer communications", "Advertising or marketing"],
+      optional: true,
+    });
+    expect(ids?.what).toContain("Firebase Cloud Messaging");
+    expect(items.find((item) => item.type === "App interactions")?.what).toContain(
+      "not linked to the phone",
+    );
+  });
+
   it("list each data type once", () => {
-    const types = DATA_SAFETY_ITEMS.map((item) => `${item.category} › ${item.type}`);
-    expect(new Set(types).size).toBe(types.length);
+    for (const items of [
+      DATA_SAFETY_ITEMS,
+      dataSafetyItems({ googleAnalytics: true, pushNotifications: true }),
+    ]) {
+      const types = items.map((item) => `${item.category} › ${item.type}`);
+      expect(new Set(types).size).toBe(types.length);
+    }
   });
 });

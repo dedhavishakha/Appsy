@@ -10,6 +10,7 @@ import {
 import { ga4Line, useAnalytics, visitorConsent } from "./analytics";
 import { useSettings } from "./app-settings";
 import { useCountry } from "./country";
+import { usePush } from "./push";
 import {
   CART_BUYER_IDENTITY_MUTATION,
   CART_CREATE_MUTATION,
@@ -59,6 +60,7 @@ export function useCartActions() {
   const queryClient = useQueryClient();
   const { country } = useCountry();
   const { consent, track, trackGa4 } = useAnalytics();
+  const { afterAddToBag } = usePush();
 
   const commit = async (payload: CartPayload) => {
     const problem = payload.userErrors[0]?.message;
@@ -113,6 +115,8 @@ export function useCartActions() {
         const price = line.cost.amountPerQuantity;
         trackGa4(ga4AddToCart(price.currencyCode, { ...ga4Line(line), quantity: 1 }));
       }
+      // The first time, the app asks about notifications (offers and bag reminders).
+      afterAddToBag();
     },
   });
 

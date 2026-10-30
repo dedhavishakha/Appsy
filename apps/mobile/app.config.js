@@ -10,9 +10,12 @@ const { join } = require("node:path");
 // - the app's name, icon and splash screen that the merchant saved in Appsy (Publishing
 //   page), which builds download first as well, into .build-identity/. Without them the name
 //   is the design's app name (Expo Go shows it too), else "Appsy", with Expo's defaults;
-// - Firebase, for Google Analytics, only when the merchant's google-services.json is here
-//   (fetch-build-identity.mjs writes it): React Native Firebase's Expo plugin stops a build
-//   that has none, and react-native.config.js leaves its native code out without it.
+// - Firebase, for Google Analytics and push notifications, only when the merchant's
+//   google-services.json is here (fetch-build-identity.mjs writes it): React Native
+//   Firebase's Expo plugin stops a build that has none, and react-native.config.js leaves its
+//   native code out without it;
+// - notifications (expo-notifications) in every build: the bag reminder needs no Firebase.
+//   Android draws the small icon as a white shape, tinted with the store's brand colour.
 // No build uses the phone's advertising ID, so its permission is removed from every build.
 // Plain JavaScript, so it needs no Node.js type definitions in the app's TypeScript setup.
 
@@ -32,6 +35,11 @@ const BLANK_SPLASH = "./assets/splash-blank.png";
 const GOOGLE_SERVICES = "./.google-services.json";
 // Firebase's SDK adds it; Expo's blockedPermissions removes it from the final manifest.
 const AD_ID_PERMISSION = "com.google.android.gms.permission.AD_ID";
+// Expo: "96x96 all-white png with transparency".
+const NOTIFICATION_ICON = "./assets/notification-icon.png";
+// The app's one notification channel (PUSH_CHANNEL in packages/app-config/src/push.ts).
+const NOTIFICATION_CHANNEL = "offers";
+const HEX_COLOUR = /^#[0-9a-f]{6}$/i;
 
 /**
  * @param {import("expo/config").ConfigContext} context
@@ -49,6 +57,7 @@ module.exports = ({ config, projectRoot }) => {
   // accounts) as the bundle ID and package name; without it, app.json's own test app ID.
   const appId = process.env.APPSY_APP_ID;
   const firebase = !preview && existsSync(join(projectRoot, GOOGLE_SERVICES));
+  const brand = bundledSettings?.theme?.colors?.brand;
   return {
     ...config,
     name:
@@ -84,6 +93,14 @@ module.exports = ({ config, projectRoot }) => {
         },
       ],
       ...(firebase ? ["@react-native-firebase/app"] : []),
+      [
+        "expo-notifications",
+        {
+          icon: NOTIFICATION_ICON,
+          ...(typeof brand === "string" && HEX_COLOUR.test(brand) ? { color: brand } : {}),
+          defaultChannel: NOTIFICATION_CHANNEL,
+        },
+      ],
     ],
     experiments: {
       ...config.experiments,

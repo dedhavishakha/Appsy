@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  BAG_REMINDER_DEFAULTS,
   createCatalog,
   createDefaultDesign,
+  setPushSettings,
   setSizeChartSettings,
   switchAppCodes,
   switchFeature,
@@ -20,7 +22,27 @@ describe("feature manifests", () => {
       "app-only-codes",
       "size-chart",
       "google-analytics",
+      "push-notifications",
     ]);
+  });
+
+  // Appsy's Functionality page saves the bag reminder's settings.
+  it("accept push notification settings, and fill in the reminder's defaults", () => {
+    const on = switchFeature(
+      createDefaultDesign({ defaultCountry: "IN" }),
+      "push-notifications",
+      true,
+    );
+    const result = validateDesign(on, catalog);
+    expect(result.success ? result.design.features["push-notifications"] : null).toEqual({
+      enabled: true,
+      settings: { bagReminder: BAG_REMINDER_DEFAULTS },
+    });
+
+    const broken = setPushSettings(on, {
+      bagReminder: { ...BAG_REMINDER_DEFAULTS, hours: 0 },
+    });
+    expect(validateDesign(broken, catalog).success).toBe(false);
   });
 
   // Appsy's Functionality page saves which products use which chart.
