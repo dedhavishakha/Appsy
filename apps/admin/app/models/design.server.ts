@@ -608,6 +608,9 @@ async function writeLiveFile(
       privacyPolicy: details.shop.privacyPolicy.url,
       // Where the app sends usage events once shoppers allow it (routes/api.events.$appId.tsx).
       events: `${appUrl}/api/events/${appProjectId}`,
+      // Where it registers for push notifications once shoppers allow them
+      // (routes/api.push.$appId.tsx).
+      push: `${appUrl}/api/push/${appProjectId}`,
     },
     app: appIdentity(shop),
   });

@@ -14,7 +14,7 @@ import type { BuildIntent, BuildResult } from "../models/builds";
 import { loadBuilds, startBuild, uploadAgain } from "../models/builds.server";
 import { loadIdentity, saveIdentity } from "../models/identity.server";
 import type { IdentityIssue } from "../models/identity";
-import { GA4_FEATURE } from "@appsy/app-config";
+import { GA4_FEATURE, pushOn } from "@appsy/app-config";
 import { loadDesign } from "../models/design.server";
 import { loadFirebase } from "../models/google-analytics.server";
 import { loadPrivacyPolicy } from "../models/privacy-policy.server";
@@ -64,7 +64,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       loadFirebase(shop.appProject.id),
     ]);
   // The privacy text and Google Play answers mention Google Analytics once the store has
-  // switched it on and given its Firebase file (Functionality page).
+  // switched it on and given its Firebase file, and notifications once push notifications
+  // are on (Functionality page).
   const googleAnalytics =
     design.features[GA4_FEATURE]?.enabled === true && firebase !== null;
   return {
@@ -74,6 +75,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     privacyPolicy,
     filesAccess,
     googleAnalytics,
+    pushNotifications: pushOn(design),
   };
 };
 
@@ -246,6 +248,7 @@ export default function Publishing() {
     privacyPolicy,
     filesAccess,
     googleAnalytics,
+    pushNotifications,
   } = useLoaderData<typeof loader>();
 
   return (
@@ -424,6 +427,7 @@ export default function Publishing() {
         appName={identity.appName}
         policy={privacyPolicy}
         googleAnalytics={googleAnalytics}
+        pushNotifications={pushNotifications}
       />
 
       <s-section heading="Keeping your app up to date">

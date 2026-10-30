@@ -3,8 +3,9 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { AppleTeamType } from "./store-accounts";
 
-// The vault for merchants' store keys: their App Store Connect API key and Google service
-// account. Keys live only here; the database keeps the secret's ARN (doc 05, section 6).
+// The vault for merchants' keys: their App Store Connect API key, their Google Play service
+// account, and their Firebase project's service account for push notifications. Keys live
+// only here; the database keeps the secret's ARN (doc 05, section 6).
 //
 // On the server (AWS_REGION set): one AWS Secrets Manager secret per merchant app, named
 // appsy/merchants/<app id>, encrypted by Secrets Manager with AWS KMS and written and read
@@ -30,6 +31,8 @@ export type StoreKeys = {
     privateKey: string;
   };
   google?: { serviceAccount: GoogleServiceAccount };
+  // Sends push notifications through Firebase Cloud Messaging (models/push.server.ts).
+  firebase?: { serviceAccount: GoogleServiceAccount };
 };
 
 const APP_ID = /^[0-9a-f-]{36}$/;
@@ -98,6 +101,19 @@ export async function getStoreKeys(
     if (error instanceof sdk.ResourceNotFoundException) return null;
     throw error;
   }
+}
+
+// Saves the keys left after one is removed, or deletes the secret when none are. Returns
+// where they are, or null.
+export async function keepStoreKeys(
+  appProjectId: string,
+  keys: StoreKeys,
+): Promise<string | null> {
+  if (keys.apple || keys.google || keys.firebase) {
+    return putStoreKeys(appProjectId, keys);
+  }
+  await deleteStoreKeys(appProjectId);
+  return null;
 }
 
 // Deleted at once, without Secrets Manager's recovery window: on disconnect, and when the

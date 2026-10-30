@@ -186,9 +186,17 @@ export async function registerBundleId(
 
 // --- Google --------------------------------------------------------------------------
 
-// A Google access token for the service account: an RS256 JWT exchanged at Google's token
-// address (https://developers.google.com/identity/protocols/oauth2/service-account).
-async function googleToken(serviceAccount: GoogleServiceAccount) {
+const ANDROID_PUBLISHER_SCOPE =
+  "https://www.googleapis.com/auth/androidpublisher";
+
+// A Google access token for the service account and one API's scope: an RS256 JWT exchanged
+// at Google's token address
+// (https://developers.google.com/identity/protocols/oauth2/service-account). Throws when the
+// key file's private key can't be read. Push notifications use it too (push.server.ts).
+export async function googleToken(
+  serviceAccount: GoogleServiceAccount,
+  scope = ANDROID_PUBLISHER_SCOPE,
+) {
   const key = createPrivateKey(serviceAccount.private_key);
   const now = Math.floor(Date.now() / 1000);
   const assertion = jwt(
@@ -201,7 +209,7 @@ async function googleToken(serviceAccount: GoogleServiceAccount) {
     },
     {
       iss: serviceAccount.client_email,
-      scope: "https://www.googleapis.com/auth/androidpublisher",
+      scope,
       aud: GOOGLE_TOKEN,
       iat: now,
       exp: now + 10 * 60,

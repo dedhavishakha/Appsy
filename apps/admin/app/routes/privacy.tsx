@@ -1,5 +1,8 @@
 import type { MetaFunction } from "react-router";
-import { USAGE_DATA_KEEP_MONTHS } from "@appsy/app-config";
+import {
+  PUSH_DEVICE_KEEP_DAYS,
+  USAGE_DATA_KEEP_MONTHS,
+} from "@appsy/app-config";
 import { LegalDocument } from "../components/public-page";
 
 // Appsy's own privacy policy (separate from each store's policy, which its app also links
@@ -12,7 +15,7 @@ export const meta: MetaFunction = () => [{ title: "Appsy privacy policy" }];
 
 export default function Privacy() {
   return (
-    <LegalDocument title="Appsy privacy policy" updated="27 October 2026">
+    <LegalDocument title="Appsy privacy policy" updated="30 October 2026">
       <h2>1. Who we are</h2>
       <p>
         Appsy is made by [Scopegen&apos;s legal name], of [registered address]
@@ -37,8 +40,16 @@ export default function Privacy() {
         <li>
           your app&apos;s designs and settings, including links to the pictures
           you choose from your Shopify Files, and the Shopify staff ID of
-          whoever saved each design version.
+          whoever saved each design version;
         </li>
+        <li>
+          the keys you give Appsy to publish your app and send its
+          notifications: your App Store Connect API key, your Google Play
+          service account key and your Firebase service account key, kept
+          encrypted in a secrets service, and your app&apos;s Firebase
+          configuration file;
+        </li>
+        <li>the push notifications you write, and when they were sent.</li>
       </ul>
       <p>
         Your store&apos;s products, customers and orders stay in Shopify. If
@@ -66,8 +77,20 @@ export default function Privacy() {
           already sent.
         </li>
         <li>
-          The wishlist and the shopper&apos;s chosen country and currency stay
-          on their phone.
+          If the store sends push notifications, the app asks the shopper first.
+          If they allow them, the app sends Appsy the phone&apos;s notification
+          address from Google&apos;s Firebase Cloud Messaging, a random install
+          ID it creates and the country the shopper chose in the app, so the
+          store can send them offers and news. Turning notifications off under
+          Privacy choices deletes these from Appsy. Reminders about items left
+          in the bag are scheduled on the phone, and the bag isn&apos;t sent to
+          Appsy. Appsy counts how many people open each notification, without
+          recording who.
+        </li>
+        <li>
+          The wishlist and the shopper&apos;s chosen currency stay on their
+          phone, and so does their chosen country unless they allow
+          notifications.
         </li>
         <li>
           The bag and checkout are run by Shopify, under{" "}
@@ -102,6 +125,10 @@ export default function Privacy() {
         <li>Cloudflare: network services in front of appsy.scopegen.in.</li>
         <li>Expo: builds the mobile apps.</li>
         <li>
+          Google Firebase Cloud Messaging: delivers each store&apos;s push
+          notifications, through the store&apos;s own Firebase project.
+        </li>
+        <li>
           ExchangeRate-API: exchange rates, downloaded by phones only when
           currency conversion is on.
         </li>
@@ -116,6 +143,11 @@ export default function Privacy() {
         <li>
           Usage events: up to {USAGE_DATA_KEEP_MONTHS} months, then deleted, or
           sooner when the shopper turns usage data off.
+        </li>
+        <li>
+          Notification addresses: until the shopper turns notifications off,
+          Google says the address no longer works, or the app hasn&apos;t been
+          opened on that phone for {PUSH_DEVICE_KEEP_DAYS} days.
         </li>
         <li>
           Store data: erased when Shopify asks us to, 48 hours after you

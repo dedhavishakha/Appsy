@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   ActionFunctionArgs,
   HeadersFunction,
@@ -9,9 +9,17 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
   appCodeStart,
+  BAG_REMINDER_MAX_HOURS,
   GA4_FEATURE,
+  PUSH_BODY_MAX,
+  PUSH_FEATURE,
+  PUSH_TITLE_MAX,
+  pushOn,
+  pushSettings,
   savedCodeStart,
+  savedPushSettings,
   savedSizeChartSettings,
+  setPushSettings,
   setSizeChartSettings,
   shopifyGid,
   SIZE_CHART_FEATURE,
@@ -21,7 +29,9 @@ import {
   switchFeature,
   withoutSizeChart,
   type AppDesign,
+  type BagReminderSettings,
   type DesignIssue,
+  type PushSettings,
   type SizeChartMatch,
   type SizeChartRule,
   type SizeChartSettings,
@@ -49,32 +59,50 @@ import {
   saveFirebase,
   type FirebaseConnection,
 } from "../models/google-analytics.server";
+import {
+  cancelScheduled,
+  connectPushKey,
+  loadPushKey,
+  removePushKey,
+  type PushKeyStatus,
+} from "../models/push.server";
 
 // Functionality: what the merchant's app can do for shoppers. Each switch takes effect in
 // the app at once, apart from the design they edit and publish in the editor.
 
 // Each change this page makes (see settingChange). "newCodeStart" gives the store a new
 // code start for app-only discount codes and keeps them on; "sizeChartSettings" says which
-// products use which size chart; "deleteSizeChart" deletes one and forgets it. The two
-// google-services.json changes keep or remove the merchant's file, not the design.
+// products use which size chart; "deleteSizeChart" deletes one and forgets it;
+// "pushSettings" holds the bag reminder. The file changes keep or remove the merchant's
+// google-services.json and Firebase key, not the design.
 const SETTINGS = [
   "appCodes",
   "sizeCharts",
   "googleAnalytics",
+  "pushNotifications",
   "currencyConversion",
   "wishlist",
   "newCodeStart",
   "sizeChartSettings",
   "deleteSizeChart",
+  "pushSettings",
   "uploadGoogleServices",
   "removeGoogleServices",
+  "uploadPushKey",
+  "removePushKey",
 ] as const;
 
 type SettingName = (typeof SETTINGS)[number];
-type FileChange = "uploadGoogleServices" | "removeGoogleServices";
+type FileChange =
+  | "uploadGoogleServices"
+  | "removeGoogleServices"
+  | "uploadPushKey"
+  | "removePushKey";
 const FILE_CHANGES: readonly string[] = [
   "uploadGoogleServices",
   "removeGoogleServices",
+  "uploadPushKey",
+  "removePushKey",
 ];
 
 const MARKETS_QUERY = `#graphql
@@ -134,9 +162,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       ])
     : [null, {}];
   const googleAnalytics = design.features[GA4_FEATURE]?.enabled === true;
-  const firebase = googleAnalytics
-    ? await loadFirebase(shop.appProject.id)
-    : null;
+  const pushNotifications = pushOn(design);
+  // Google Analytics and push notifications share the app's Firebase project.
+  const [firebase, pushKey] = await Promise.all([
+    googleAnalytics || pushNotifications
+      ? loadFirebase(shop.appProject.id)
+      : null,
+    pushNotifications ? loadPushKey(shop.appProject.id) : null,
+  ]);
   return {
     codeStart,
     discountsAccess,
@@ -147,6 +180,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     ruleTitles,
     googleAnalytics,
     firebase,
+    pushNotifications,
+    pushSettings: savedPushSettings(design),
+    pushKey,
     appId: shop.appProject.androidPackage,
     currencyConversion: design.markets.displayCurrencyConversion,
     wishlist: design.features.wishlist?.enabled === true,
@@ -179,6 +215,18 @@ async function settingChange(
   switch (setting) {
     case "googleAnalytics":
       return (design) => switchFeature(design, GA4_FEATURE, on);
+    case "pushNotifications":
+      return (design) => switchFeature(design, PUSH_FEATURE, on);
+    case "pushSettings": {
+      const settings = pushSettings.safeParse(parseJson(value));
+      if (!settings.success) {
+        return refused(
+          settings.error.issues[0]?.message ??
+            "Those bag reminder settings aren't valid.",
+        );
+      }
+      return (design) => setPushSettings(design, settings.data);
+    }
     case "currencyConversion":
       return (design) => ({
         ...design,
@@ -242,16 +290,28 @@ export const action = async ({
       on,
     };
   }
-  // The merchant's Firebase file: kept on the app, reaching phones with the next build.
+  // The merchant's Firebase file, kept on the app and reaching phones with the next build,
+  // and their Firebase key, kept in the vault for sending push notifications.
   if (FILE_CHANGES.includes(setting)) {
-    const problems =
-      setting === "uploadGoogleServices"
-        ? await saveFirebase(
-            shop.appProject.id,
-            shop.appProject.androidPackage,
-            value,
-          )
-        : await removeFirebase(shop.appProject.id).then(() => []);
+    let problems: string[] = [];
+    switch (setting as FileChange) {
+      case "uploadGoogleServices":
+        problems = await saveFirebase(
+          shop.appProject.id,
+          shop.appProject.androidPackage,
+          value,
+        );
+        break;
+      case "removeGoogleServices":
+        await removeFirebase(shop.appProject.id);
+        break;
+      case "uploadPushKey":
+        problems = await connectPushKey(shop.appProject.id, value);
+        break;
+      case "removePushKey":
+        await removePushKey(shop.appProject.id);
+        break;
+    }
     return {
       setting,
       issues: problems.map((message) => ({ path: [], message })),
@@ -276,6 +336,13 @@ export const action = async ({
     change,
     sessionToken?.sub ?? null,
   );
+  // Switched off, nothing scheduled goes out.
+  if (setting === "pushNotifications" && !on && result.issues.length === 0) {
+    await cancelScheduled(
+      shop.appProject.id,
+      "Not sent: push notifications were turned off.",
+    );
+  }
   return { setting, issues: result.issues, live: result.live, on };
 };
 
@@ -290,6 +357,9 @@ export default function Functionality() {
     ruleTitles,
     googleAnalytics,
     firebase,
+    pushNotifications,
+    pushSettings: savedPush,
+    pushKey,
     appId,
     currencyConversion,
     wishlist,
@@ -342,6 +412,25 @@ export default function Functionality() {
         >
           {googleAnalytics && (
             <GoogleAnalytics appId={appId} connection={firebase} />
+          )}
+        </SettingSwitch>
+      </s-section>
+
+      <s-section heading="Push notifications">
+        <SettingSwitch
+          setting="pushNotifications"
+          label="Push notifications"
+          details="Send offers and news to shoppers' phones, and remind them about items left in their bag. Your app asks each shopper first."
+          checked={pushNotifications}
+        >
+          {pushNotifications && (
+            <PushNotifications
+              appId={appId}
+              firebase={firebase}
+              pushKey={pushKey}
+              settings={savedPush}
+              googleAnalytics={googleAnalytics}
+            />
           )}
         </SettingSwitch>
       </s-section>
@@ -647,7 +736,6 @@ function GoogleAnalytics({
   const fetcher = useFetcher<typeof action>();
   const busy = fetcher.state !== "idle";
   const result = busy ? undefined : fetcher.data;
-  const [fileProblem, setFileProblem] = useState<string>();
 
   useEffect(() => {
     if (!result || result.issues.length > 0) return;
@@ -658,18 +746,7 @@ function GoogleAnalytics({
     );
   }, [result, shopify]);
 
-  if (!appId) {
-    return (
-      <s-banner tone="info" heading="Choose your App ID first">
-        <s-paragraph>
-          Your Firebase Android app uses your App ID as its package name. Choose
-          it under Store accounts on the{" "}
-          <s-link href="/app/publishing">Publishing page</s-link>, then come
-          back here.
-        </s-paragraph>
-      </s-banner>
-    );
-  }
+  if (!appId) return <AppIdFirst />;
 
   const upload = (text: string) =>
     fetcher.submit(
@@ -736,25 +813,10 @@ function GoogleAnalytics({
         </s-ordered-list>
       )}
 
-      <s-drop-zone
-        label={
-          connection ? "Replace google-services.json" : "google-services.json"
-        }
-        accept=".json,application/json"
-        error={fileProblem}
-        disabled={busy || undefined}
-        onChange={(event) => {
-          const file = event.currentTarget.files[0];
-          setFileProblem(undefined);
-          if (!file) return;
-          if (file.size > 100_000) {
-            setFileProblem(
-              "This file is too large to be a google-services.json.",
-            );
-            return;
-          }
-          void file.text().then(upload);
-        }}
+      <GoogleServicesDrop
+        replace={connection !== null}
+        disabled={busy}
+        onText={upload}
       />
 
       <s-paragraph color="subdued">
@@ -766,6 +828,353 @@ function GoogleAnalytics({
         mention Google Analytics. If you turn on Google signals or link Google
         Ads in Google Analytics, Google says your answers may change.
       </s-paragraph>
+    </s-stack>
+  );
+}
+
+function AppIdFirst() {
+  return (
+    <s-banner tone="info" heading="Choose your App ID first">
+      <s-paragraph>
+        Your Firebase Android app uses your App ID as its package name. Choose
+        it under Store accounts on the{" "}
+        <s-link href="/app/publishing">Publishing page</s-link>, then come back
+        here.
+      </s-paragraph>
+    </s-banner>
+  );
+}
+
+// A JSON file the merchant downloaded from Google, read in the browser and sent as text.
+function JsonFileDrop({
+  label,
+  maxBytes,
+  tooLarge,
+  disabled,
+  onText,
+}: {
+  label: string;
+  maxBytes: number;
+  tooLarge: string;
+  disabled: boolean;
+  onText: (text: string) => void;
+}) {
+  const [problem, setProblem] = useState<string>();
+  return (
+    <s-drop-zone
+      label={label}
+      accept=".json,application/json"
+      error={problem}
+      disabled={disabled || undefined}
+      onChange={(event) => {
+        const file = event.currentTarget.files[0];
+        setProblem(undefined);
+        if (!file) return;
+        if (file.size > maxBytes) {
+          setProblem(tooLarge);
+          return;
+        }
+        void file.text().then(onText);
+      }}
+    />
+  );
+}
+
+function GoogleServicesDrop({
+  replace,
+  disabled,
+  onText,
+}: {
+  replace: boolean;
+  disabled: boolean;
+  onText: (text: string) => void;
+}) {
+  return (
+    <JsonFileDrop
+      label={replace ? "Replace google-services.json" : "google-services.json"}
+      maxBytes={100_000}
+      tooLarge="This file is too large to be a google-services.json."
+      disabled={disabled}
+      onText={onText}
+    />
+  );
+}
+
+const FILE_NOTICES: Partial<Record<string, string>> = {
+  uploadGoogleServices:
+    "Firebase file saved. Your app's next build includes it.",
+  removeGoogleServices: "Firebase file removed",
+  uploadPushKey: "Firebase key connected",
+  removePushKey: "Firebase key removed",
+};
+
+// Push notifications (app-config push.ts; doc 03, section I): the app's Firebase project
+// (the google-services.json Google Analytics also uses), the Firebase key Appsy sends
+// campaigns with (models/push.server.ts, kept in the vault), and the bag reminder, which each
+// phone schedules itself.
+function PushNotifications({
+  appId,
+  firebase,
+  pushKey,
+  settings,
+  googleAnalytics,
+}: {
+  appId: string | null;
+  firebase: FirebaseConnection | null;
+  pushKey: PushKeyStatus | null;
+  settings: PushSettings;
+  googleAnalytics: boolean;
+}) {
+  const shopify = useAppBridge();
+  const fetcher = useFetcher<typeof action>();
+  const busy = fetcher.state !== "idle";
+  const result = busy ? undefined : fetcher.data;
+
+  useEffect(() => {
+    if (!result || result.issues.length > 0) return;
+    const notice = FILE_NOTICES[result.setting];
+    if (notice) shopify.toast.show(notice);
+  }, [result, shopify]);
+
+  if (!appId) return <AppIdFirst />;
+
+  const submit = (setting: FileChange, value = "") =>
+    fetcher.submit({ setting, value }, { method: "POST" });
+
+  return (
+    <s-stack gap="base">
+      {result && result.issues.length > 0 && (
+        <s-banner tone="critical" heading="That file wasn't saved">
+          {result.issues.map((issue) => (
+            <s-paragraph key={issue.message}>{issue.message}</s-paragraph>
+          ))}
+        </s-banner>
+      )}
+
+      <s-heading>Your app&apos;s Firebase project</s-heading>
+      {firebase ? (
+        <s-paragraph>
+          Your app uses the Firebase project{" "}
+          <s-text type="strong">{firebase.projectId}</s-text>
+          {googleAnalytics
+            ? ", from the google-services.json under Google Analytics."
+            : "."}
+        </s-paragraph>
+      ) : (
+        <s-ordered-list>
+          <s-list-item>
+            Open the Firebase console at console.firebase.google.com. Create a
+            project, or open the one your Google Analytics already uses.
+          </s-list-item>
+          <s-list-item>
+            Add an Android app with {appId} as its package name.
+          </s-list-item>
+          <s-list-item>
+            Download google-services.json and upload it below. Your app&apos;s
+            next build includes it.
+          </s-list-item>
+        </s-ordered-list>
+      )}
+      {firebase && firebase.packageName !== appId && (
+        <s-banner tone="warning">
+          This file is for {firebase.packageName}, but your App ID is now{" "}
+          {appId}. Upload the file for {appId}.
+        </s-banner>
+      )}
+      {!googleAnalytics && (
+        <s-stack gap="small">
+          <GoogleServicesDrop
+            replace={firebase !== null}
+            disabled={busy}
+            onText={(text) => submit("uploadGoogleServices", text)}
+          />
+          {firebase && (
+            <s-stack direction="inline">
+              <s-button
+                variant="tertiary"
+                tone="critical"
+                disabled={busy || undefined}
+                onClick={() => submit("removeGoogleServices")}
+              >
+                Remove file
+              </s-button>
+            </s-stack>
+          )}
+        </s-stack>
+      )}
+
+      <s-heading>Your Firebase key</s-heading>
+      {pushKey ? (
+        <s-stack gap="small">
+          <s-paragraph>
+            Connected. Appsy sends your notifications as{" "}
+            <s-text type="strong">{pushKey.clientEmail}</s-text>.
+          </s-paragraph>
+          {firebase && pushKey.projectId !== firebase.projectId && (
+            <s-banner tone="warning">
+              This key is for {pushKey.projectId}, but your app&apos;s Firebase
+              project is now {firebase.projectId}. Upload a key from{" "}
+              {firebase.projectId}.
+            </s-banner>
+          )}
+          <s-stack direction="inline" gap="small">
+            <s-button variant="primary" href="/app/push">
+              Send a notification
+            </s-button>
+            <s-button
+              variant="tertiary"
+              tone="critical"
+              disabled={busy || undefined}
+              onClick={() => submit("removePushKey")}
+            >
+              Remove key
+            </s-button>
+          </s-stack>
+        </s-stack>
+      ) : (
+        <s-ordered-list>
+          <s-list-item>
+            In Firebase, open Project settings, then Service accounts.
+          </s-list-item>
+          <s-list-item>
+            Choose Generate new private key, then Generate key. Keep the file
+            safe: anyone who has it can send notifications to your shoppers.
+          </s-list-item>
+          <s-list-item>
+            Upload it below. Appsy checks it with Google and keeps it encrypted.
+          </s-list-item>
+        </s-ordered-list>
+      )}
+      <JsonFileDrop
+        label={pushKey ? "Replace Firebase key" : "Firebase key (.json)"}
+        maxBytes={20_000}
+        tooLarge="This file is too large to be a Firebase key."
+        disabled={busy || !firebase}
+        onText={(text) => submit("uploadPushKey", text)}
+      />
+
+      <s-divider />
+      <BagReminder settings={settings} />
+
+      <s-paragraph color="subdued">
+        Your app asks shoppers the first time they add something to their bag,
+        and they can turn notifications off under Privacy choices. Notifications
+        reach Android phones once they have your app&apos;s next build; iPhones
+        follow with iPhone builds. Your privacy text and Google Play answers on
+        the Publishing page now mention notifications.
+      </s-paragraph>
+    </s-stack>
+  );
+}
+
+const BAG_REMINDER_SAVE_BAR = "bag-reminder-save-bar";
+
+// The reminder each phone schedules when its bag hasn't changed for a while, saved with
+// Shopify's save bar. It reaches phones with the live design, like the switches.
+function BagReminder({ settings }: { settings: PushSettings }) {
+  const shopify = useAppBridge();
+  const fetcher = useFetcher<typeof action>();
+  const [saved, setSaved] = useState(settings.bagReminder);
+  const [draft, setDraft] = useState(settings.bagReminder);
+  const pending = useRef<BagReminderSettings | null>(null);
+  const busy = fetcher.state !== "idle";
+  const issues = busy ? [] : (fetcher.data?.issues ?? []);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+
+  useEffect(() => {
+    void (dirty
+      ? shopify.saveBar.show(BAG_REMINDER_SAVE_BAR)
+      : shopify.saveBar.hide(BAG_REMINDER_SAVE_BAR));
+  }, [dirty, shopify]);
+  useEffect(
+    () => () => void shopify.saveBar.hide(BAG_REMINDER_SAVE_BAR),
+    [shopify],
+  );
+
+  useEffect(() => {
+    if (fetcher.state !== "idle" || !fetcher.data || pending.current === null)
+      return;
+    if (fetcher.data.issues.length === 0) {
+      setSaved(pending.current);
+      shopify.toast.show(
+        fetcher.data.live
+          ? "Saved. Your app uses it now."
+          : "Saved. Your app gets it when you first publish its design.",
+      );
+    }
+    pending.current = null;
+  }, [fetcher.state, fetcher.data, shopify]);
+
+  const save = () => {
+    pending.current = draft;
+    fetcher.submit(
+      {
+        setting: "pushSettings",
+        value: JSON.stringify({ ...settings, bagReminder: draft }),
+      },
+      { method: "POST" },
+    );
+  };
+  const update = (change: Partial<BagReminderSettings>) =>
+    setDraft((current) => ({ ...current, ...change }));
+  const off = !draft.enabled || undefined;
+
+  return (
+    <s-stack gap="base">
+      {/* Discard asks first. */}
+      <ui-save-bar id={BAG_REMINDER_SAVE_BAR} discardConfirmation>
+        <button variant="primary" disabled={busy} onClick={save}>
+          Save
+        </button>
+        <button disabled={busy} onClick={() => setDraft(saved)}>
+          Discard
+        </button>
+      </ui-save-bar>
+      <s-heading>Bag reminder</s-heading>
+      <s-checkbox
+        label="Remind shoppers about items left in their bag"
+        details="Once, when their bag hasn't changed for the hours below. Each phone sets its own reminder, so shoppers' bags aren't sent to Appsy, and it doesn't need the Firebase key."
+        checked={draft.enabled || undefined}
+        onChange={(event) => update({ enabled: event.currentTarget.checked })}
+      />
+      <s-number-field
+        label="Hours after the bag last changed"
+        min={1}
+        max={BAG_REMINDER_MAX_HOURS}
+        step={1}
+        value={String(draft.hours)}
+        disabled={off}
+        onChange={(event) => {
+          const hours = Math.round(Number(event.currentTarget.value));
+          if (Number.isFinite(hours)) {
+            update({
+              hours: Math.min(Math.max(hours, 1), BAG_REMINDER_MAX_HOURS),
+            });
+          }
+        }}
+      />
+      <s-text-field
+        label="Title"
+        maxLength={PUSH_TITLE_MAX}
+        value={draft.title}
+        disabled={off}
+        onInput={(event) => update({ title: event.currentTarget.value })}
+      />
+      <s-text-area
+        label="Message"
+        maxLength={PUSH_BODY_MAX}
+        rows={2}
+        value={draft.body}
+        disabled={off}
+        onInput={(event) => update({ body: event.currentTarget.value })}
+      />
+      {issues.length > 0 && (
+        <s-banner tone="critical" heading="The bag reminder wasn't saved">
+          {issues.map((issue) => (
+            <s-paragraph key={issue.message}>{issue.message}</s-paragraph>
+          ))}
+        </s-banner>
+      )}
     </s-stack>
   );
 }
@@ -1131,6 +1540,7 @@ function SettingSwitch({
     | "appCodes"
     | "sizeCharts"
     | "googleAnalytics"
+    | "pushNotifications"
     | "currencyConversion"
     | "wishlist"
   >;

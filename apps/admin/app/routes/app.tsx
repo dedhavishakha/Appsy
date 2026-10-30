@@ -29,6 +29,7 @@ export default function App() {
         <s-link href="/app">Home</s-link>
         <s-link href="/app/design">App design</s-link>
         <s-link href="/app/functionality">Functionality</s-link>
+        <s-link href="/app/push">Push notifications</s-link>
         <s-link href="/app/publishing">Publishing</s-link>
         <s-link href="/app/analytics">Analytics</s-link>
         <s-link href="/app/settings">Settings</s-link>

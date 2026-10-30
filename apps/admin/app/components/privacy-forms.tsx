@@ -21,14 +21,29 @@ const GOOGLE_HELP = {
 type Props = {
   appName: string;
   policy: PrivacyPolicy;
-  // Whether the store's app sends Google Analytics its events (Functionality page).
+  // Whether the store's app sends Google Analytics its events, and whether it has push
+  // notifications (Functionality page).
   googleAnalytics: boolean;
+  pushNotifications: boolean;
 };
 
-export function PrivacyForms({ appName, policy, googleAnalytics }: Props) {
+export function PrivacyForms({
+  appName,
+  policy,
+  googleAnalytics,
+  pushNotifications,
+}: Props) {
   const shopify = useAppBridge();
-  const text = appPolicyText(appName, { googleAnalytics });
-  const items = dataSafetyItems({ googleAnalytics });
+  const options = { googleAnalytics, pushNotifications };
+  const text = appPolicyText(appName, options);
+  const items = dataSafetyItems(options);
+  const providers = [
+    "Appsy",
+    "Shopify",
+    ...(googleAnalytics ? ["Google Analytics"] : []),
+    ...(pushNotifications ? ["Firebase Cloud Messaging"] : []),
+  ];
+  const handlers = `${providers.slice(0, -1).join(", ")} and ${providers[providers.length - 1]}`;
 
   const copy = async (value: string, done: string) => {
     try {
@@ -126,17 +141,19 @@ export function PrivacyForms({ appName, policy, googleAnalytics }: Props) {
           </s-list-item>
           <s-list-item>
             Do you provide a way for users to request that their data is
-            deleted? Yes: turning off usage data in the app deletes it, and
-            shoppers can ask you about the rest through your privacy policy.
+            deleted? Yes: turning off usage data
+            {pushNotifications ? " or notifications" : ""} in the app deletes
+            what it sent, and shoppers can ask you about the rest through your
+            privacy policy.
           </s-list-item>
         </s-unordered-list>
         <s-paragraph>
           Under Data types, tick these {items.length} and nothing else.
           They&apos;re in the order Play Console lists them. Under Data usage
           and handling, mark each one as collected, not shared and not processed
-          ephemerally, with the purposes and choice shown here. Appsy, Shopify
-          {googleAnalytics ? " and Google Analytics" : ""} handle the data for
-          you as service providers, which Google doesn&apos;t count as sharing.
+          ephemerally, with the purposes and choice shown here. {handlers}{" "}
+          handle the data for you as service providers, which Google
+          doesn&apos;t count as sharing.
         </s-paragraph>
         <s-table>
           <s-table-header-row>

@@ -430,8 +430,9 @@ const TIMES = Array.from({ length: 48 }, (_, index) => {
 const pad = (value: number) => String(value).padStart(2, "0");
 
 // A moment as a date and a half-hour time in the merchant's own time zone (the browser's),
-// saved in UTC. Polaris has a date field but no time field, so the time is a menu.
-function DateTimeField({
+// saved in UTC. Polaris has a date field but no time field, so the time is a menu. Push
+// notifications use it to schedule a campaign (routes/app.push.new.tsx).
+export function DateTimeField({
   label,
   value,
   error,
@@ -501,8 +502,8 @@ const LINK_TYPES = {
 type LinkType = keyof typeof LINK_TYPES;
 
 // Where a tap goes: a collection or product (Shopify's resource picker), one of the
-// store's pages, or a web address.
-function LinkPicker({
+// store's pages, or a web address. Push notifications use it too (routes/app.push.new.tsx).
+export function LinkPicker({
   label,
   value,
   error,
@@ -512,7 +513,7 @@ function LinkPicker({
   label: string;
   value: unknown;
   error?: string;
-  tools: SettingTools;
+  tools: Pick<SettingTools, "pages" | "pickResource">;
   onChange: (value: LinkValue | null) => void;
 }) {
   const parsed = linkValue.safeParse(value);

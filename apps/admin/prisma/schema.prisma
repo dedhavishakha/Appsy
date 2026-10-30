@@ -106,6 +106,10 @@ model AppProject {
   // app it names (models/google-analytics.server.ts). Not a secret (it's inside every app
   // build), but kept here rather than on the public CDN; builds get it from Appsy.
   firebase        Json?
+  // The Firebase key for push notifications, as the Functionality page shows it: its project
+  // and service account, and when Appsy checked it (models/push.server.ts). The key itself is
+  // only in the vault, beside the store keys.
+  push            Json?
   status          AppStatus        @default(setup)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
@@ -113,6 +117,65 @@ model AppProject {
   assets          Asset[]
   analyticsEvents AnalyticsEvent[]
   builds          AppBuild[]
+  pushDevices     PushDevice[]
+  pushCampaigns   PushCampaign[]
+}
+
+// A phone that allowed push notifications (models/push.server.ts): its notification address
+// from Firebase Cloud Messaging and the random install id the app made when the shopper said
+// yes. Deleted when the shopper turns notifications off, when Google says the address no
+// longer works, and after 270 days without the app being opened (app-config push.ts).
+model PushDevice {
+  id           String     @id @default(uuid()) @db.Uuid
+  appProjectId String     @db.Uuid
+  appProject   AppProject @relation(fields: [appProjectId], references: [id], onDelete: Cascade)
+  installId    String     @db.Uuid
+  // The install id's first 8 characters, which the app shows so staff can send themselves a test.
+  testCode     String     @db.VarChar(8)
+  token        String
+  platform     String
+  // The country the shopper chose in the app, for campaigns to some countries only.
+  country      String?    @db.VarChar(2)
+  createdAt    DateTime   @default(now())
+  lastSeenAt   DateTime   @default(now())
+
+  @@unique([appProjectId, installId])
+  @@unique([appProjectId, token])
+  @@index([appProjectId, testCode])
+  @@index([lastSeenAt])
+}
+
+// A campaign the merchant sent or scheduled on the Push notifications page. Status:
+// scheduled → sending → sent (or failed); canceled before it starts. `cursor` is the last
+// phone it reached, so a restart carries on from there. Opens are counted, not who opened.
+model PushCampaign {
+  id           String     @id @default(uuid()) @db.Uuid
+  appProjectId String     @db.Uuid
+  appProject   AppProject @relation(fields: [appProjectId], references: [id], onDelete: Cascade)
+  title        String
+  body         String
+  // The picture chosen from Shopify Files, and the smaller copy phones download.
+  image        Json?
+  imageUrl     String?
+  link         Json?
+  // Country codes; none means every phone.
+  countries    String[]
+  status       String
+  sendAt       DateTime
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  cursor       String?    @db.Uuid
+  targeted     Int        @default(0)
+  sent         Int        @default(0)
+  failed       Int        @default(0)
+  opened       Int        @default(0)
+  error        String?
+  createdBy    String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([appProjectId, createdAt])
+  @@index([status, sendAt])
 }
 
 // One build of a merchant's app on Expo (EAS) and its upload to the store's testing track,

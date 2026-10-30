@@ -21,8 +21,8 @@ import {
   type StoreIssue,
 } from "./store-accounts";
 import {
-  deleteStoreKeys,
   getStoreKeys,
+  keepStoreKeys,
   putStoreKeys,
   type GoogleServiceAccount,
   type StoreKeys,
@@ -350,12 +350,8 @@ export async function disconnect(
   const project = await loadProject(appProjectId);
   const keys: StoreKeys = { ...(await getStoreKeys(appProjectId)) };
   delete keys[platform];
-  let credentialsRef: string | null = null;
-  if (keys.apple || keys.google) {
-    credentialsRef = await putStoreKeys(appProjectId, keys);
-  } else {
-    await deleteStoreKeys(appProjectId);
-  }
+  // The push notifications key shares the secret, so it can outlive both store keys.
+  const credentialsRef = await keepStoreKeys(appProjectId, keys);
   const accounts: StoreAccounts = { ...project.accounts };
   delete accounts[platform];
   await db.appProject.update({
