@@ -16,6 +16,22 @@ const mobile = join(dirname(fileURLToPath(import.meta.url)), "..");
 const identityDir = join(mobile, ".build-identity");
 const settingsUrl = process.env.EXPO_PUBLIC_SETTINGS_URL;
 
+// 0. The merchant's google-services.json, when they connected Google Analytics. Appsy's
+// server puts it in the build profile's APPSY_GOOGLE_SERVICES (base64); app.config.js and
+// react-native.config.js include Firebase only when the file is here.
+const googleServices = join(mobile, ".google-services.json");
+await rm(googleServices, { force: true });
+if (process.env.APPSY_GOOGLE_SERVICES) {
+  const file = Buffer.from(process.env.APPSY_GOOGLE_SERVICES, "base64").toString("utf8");
+  try {
+    JSON.parse(file);
+  } catch {
+    fail("APPSY_GOOGLE_SERVICES isn't a google-services.json.");
+  }
+  await writeFile(googleServices, file);
+  console.log("Google Analytics: the merchant's Firebase file is included.");
+}
+
 if (!settingsUrl) {
   console.log("No EXPO_PUBLIC_SETTINGS_URL: building without a store's design, name or icon.");
   process.exit(0);

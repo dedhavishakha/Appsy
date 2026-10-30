@@ -14,6 +14,9 @@ import type { BuildIntent, BuildResult } from "../models/builds";
 import { loadBuilds, startBuild, uploadAgain } from "../models/builds.server";
 import { loadIdentity, saveIdentity } from "../models/identity.server";
 import type { IdentityIssue } from "../models/identity";
+import { GA4_FEATURE } from "@appsy/app-config";
+import { loadDesign } from "../models/design.server";
+import { loadFirebase } from "../models/google-analytics.server";
 import { loadPrivacyPolicy } from "../models/privacy-policy.server";
 import { ensureShopSetup } from "../models/shop.server";
 import type { StoreIntent, StoreResult } from "../models/store-accounts";
@@ -51,13 +54,27 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const filesAccess =
     granted === null ||
     ["read_files", "write_files"].some((name) => granted.includes(name));
-  const [identity, store, builds, privacyPolicy] = await Promise.all([
-    loadIdentity(shop.appProject.id),
-    loadStoreAccounts(shop.appProject.id, session.shop),
-    loadBuilds(shop.appProject.id),
-    loadPrivacyPolicy(shop),
-  ]);
-  return { identity, store, builds, privacyPolicy, filesAccess };
+  const [identity, store, builds, privacyPolicy, design, firebase] =
+    await Promise.all([
+      loadIdentity(shop.appProject.id),
+      loadStoreAccounts(shop.appProject.id, session.shop),
+      loadBuilds(shop.appProject.id),
+      loadPrivacyPolicy(shop),
+      loadDesign(shop.appProject.id),
+      loadFirebase(shop.appProject.id),
+    ]);
+  // The privacy text and Google Play answers mention Google Analytics once the store has
+  // switched it on and given its Firebase file (Functionality page).
+  const googleAnalytics =
+    design.features[GA4_FEATURE]?.enabled === true && firebase !== null;
+  return {
+    identity,
+    store,
+    builds,
+    privacyPolicy,
+    filesAccess,
+    googleAnalytics,
+  };
 };
 
 // Each part of the page posts its own intent: "identity" for the name and icon, the
@@ -222,8 +239,14 @@ const WAIT_TIMES = [
 ];
 
 export default function Publishing() {
-  const { identity, store, builds, privacyPolicy, filesAccess } =
-    useLoaderData<typeof loader>();
+  const {
+    identity,
+    store,
+    builds,
+    privacyPolicy,
+    filesAccess,
+    googleAnalytics,
+  } = useLoaderData<typeof loader>();
 
   return (
     <s-page heading="Publishing your app">
@@ -397,7 +420,11 @@ export default function Publishing() {
         </s-ordered-list>
       </s-section>
 
-      <PrivacyForms appName={identity.appName} policy={privacyPolicy} />
+      <PrivacyForms
+        appName={identity.appName}
+        policy={privacyPolicy}
+        googleAnalytics={googleAnalytics}
+      />
 
       <s-section heading="Keeping your app up to date">
         <s-paragraph>

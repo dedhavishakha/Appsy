@@ -258,6 +258,11 @@ export type ProductDetail = {
   images: { nodes: ImageData[] };
   options: { name: string; optionValues: { name: string }[] }[];
   variants: { nodes: ProductVariant[] };
+  // What size chart rules match on (app-config size-charts.ts).
+  productType: string;
+  vendor: string;
+  tags: string[];
+  collections: { nodes: { id: string }[] };
 };
 
 // By id when a link has one (handles can be renamed), otherwise by handle.
@@ -270,6 +275,10 @@ export const PRODUCT_QUERY = `
       title
       description
       availableForSale
+      productType
+      vendor
+      tags
+      collections(first: 50) { nodes { id } }
       featuredImage { url altText }
       images(first: 10) { nodes { url altText } }
       options { name optionValues { name } }
@@ -290,11 +299,44 @@ export const PRODUCT_QUERY = `
 
 export type ProductData = { product: ProductDetail | null };
 
+// One size chart: an Appsy-owned entry in the store's Shopify (app-config size-charts.ts).
+export const SIZE_CHART_QUERY = `
+  query AppsySizeChart($id: ID!) {
+    metaobject(id: $id) {
+      id
+      name: field(key: "name") { value }
+      table: field(key: "table") { value }
+      note: field(key: "note") { value }
+      image: field(key: "image") {
+        reference { ... on MediaImage { image { url altText width height } } }
+      }
+      page: field(key: "page") {
+        reference { ... on Page { title onlineStoreUrl } }
+      }
+    }
+  }
+`;
+
+export type SizeChartData = {
+  metaobject: {
+    id: string;
+    name: { value: string } | null;
+    table: { value: string } | null;
+    note: { value: string } | null;
+    image: {
+      reference: {
+        image: { url: string; altText: string | null; width: number; height: number } | null;
+      } | null;
+    } | null;
+    page: { reference: { title: string; onlineStoreUrl: string | null } | null } | null;
+  } | null;
+};
+
 export type CartLine = {
   id: string;
   quantity: number;
-  // Before and after the line's own (product) discounts.
-  cost: { subtotalAmount: Money; totalAmount: Money };
+  // Before and after the line's own (product) discounts, and the price of one.
+  cost: { subtotalAmount: Money; totalAmount: Money; amountPerQuantity: Money };
   // Every discount on the line, order-wide ones included: an automatic discount's title,
   // or the code.
   discountAllocations: CartDiscountAllocation[];
@@ -302,7 +344,8 @@ export type CartLine = {
     id: string;
     title: string;
     image: ImageData | null;
-    product: { handle: string; title: string };
+    // The id and vendor go to Google Analytics (lib/analytics.ts).
+    product: { id: string; handle: string; title: string; vendor: string };
   };
 };
 
@@ -322,6 +365,9 @@ export type Cart = {
 export type CartPayload = {
   cart: Cart | null;
   userErrors: { field?: string[] | null; message: string }[];
+  // Only the mutations that add discount codes ask for these: DISCOUNT_NOT_FOUND says
+  // Shopify has no such code, which `applicable` alone can't tell.
+  warnings?: { code: string }[];
 };
 
 const CART_FIELDS = `
@@ -341,6 +387,7 @@ const CART_FIELDS = `
         cost {
           subtotalAmount { amount currencyCode }
           totalAmount { amount currencyCode }
+          amountPerQuantity { amount currencyCode }
         }
         discountAllocations(lineLevelOnly: false) {
           discountedAmount { amount currencyCode }
@@ -353,7 +400,7 @@ const CART_FIELDS = `
             id
             title
             image { url altText }
-            product { handle title }
+            product { id handle title vendor }
           }
         }
       }
@@ -362,6 +409,7 @@ const CART_FIELDS = `
 `;
 
 const CART_PAYLOAD = `cart { ...AppsyCartFields } userErrors { field message }`;
+const CART_PAYLOAD_WITH_WARNINGS = `${CART_PAYLOAD} warnings { code }`;
 
 export const CART_QUERY = `
   query AppsyCart($id: ID!, $country: CountryCode) @inContext(country: $country) {
@@ -375,7 +423,7 @@ export const CART_QUERY = `
 export const CART_CREATE_MUTATION = `
   mutation AppsyCartCreate($input: CartInput!, $country: CountryCode, $consent: VisitorConsent)
   @inContext(country: $country, visitorConsent: $consent) {
-    cartCreate(input: $input) { ${CART_PAYLOAD} }
+    cartCreate(input: $input) { ${CART_PAYLOAD_WITH_WARNINGS} }
   }
   ${CART_FIELDS}
 `;
@@ -409,7 +457,9 @@ export const CART_BUYER_IDENTITY_MUTATION = `
 export const CART_DISCOUNT_CODES_MUTATION = `
   mutation AppsyCartDiscountCodesUpdate($cartId: ID!, $discountCodes: [String!]!, $country: CountryCode)
   @inContext(country: $country) {
-    cartDiscountCodesUpdate(cartId: $cartId, discountCodes: $discountCodes) { ${CART_PAYLOAD} }
+    cartDiscountCodesUpdate(cartId: $cartId, discountCodes: $discountCodes) {
+      ${CART_PAYLOAD_WITH_WARNINGS}
+    }
   }
   ${CART_FIELDS}
 `;

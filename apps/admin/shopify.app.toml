@@ -25,6 +25,10 @@ name = "Appsy"
 # write_resource_feedbacks: the "publish your design" step on the merchant's admin home
 # (shopResourceFeedbackCreate, App Store requirement 5.7.3; added 2026-10-27).
 scopes = "read_products,read_product_listings,read_publications,read_files,read_online_store_navigation,unauthenticated_read_product_listings,unauthenticated_read_product_inventory,unauthenticated_read_product_tags,unauthenticated_read_metaobjects,unauthenticated_read_content,unauthenticated_read_checkouts,unauthenticated_write_checkouts,unauthenticated_read_selling_plans,write_resource_feedbacks"
+# Optional: stores grant these later, only if they use the feature, and can decline them
+# (https://shopify.dev/docs/apps/build/authentication-authorization/app-installation/manage-access-scopes).
+# read_discounts: the list of app-only discount codes on the Functionality page (added 2026-10-28).
+optional_scopes = [ "read_discounts" ]
 
 [webhooks]
 # A stable version, the same as the rest of the app (app/shopify.server.ts); 2027-01 is a
@@ -49,3 +53,42 @@ redirect_urls = [ "https://appsy.scopegen.in/auth/callback" ]
 
 [build]
 automatically_update_urls_on_dev = true
+
+# Size charts (Functionality page): Appsy-owned entries in the store's Shopify, which apps read
+# and write without access scopes (shopify.dev changelog, 2026-04). Merchants see and can edit
+# them in Shopify admin, and phones read them with Appsy's Storefront token
+# (https://shopify.dev/docs/apps/build/metaobjects/manage-metaobject-definitions).
+[metaobjects.app.size_chart]
+name = "Size chart"
+description = "A size chart for your Appsy mobile app. Make and edit charts in Appsy."
+display_name_field = "name"
+access.admin = "merchant_read_write"
+access.storefront = "public_read"
+
+[metaobjects.app.size_chart.fields.name]
+name = "Name"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.size_chart.fields.table]
+name = "Table"
+description = "Column headings and rows of sizes, made in Appsy."
+type = "json"
+
+[metaobjects.app.size_chart.fields.image]
+name = "Picture"
+type = "file_reference"
+validations.file_type_options = ["Image"]
+
+[metaobjects.app.size_chart.fields.note]
+name = "How to measure"
+type = "multi_line_text_field"
+
+[metaobjects.app.size_chart.fields.page]
+name = "Size guide page"
+description = "A page of your online store, shown in the app's browser."
+type = "page_reference"
+
+# No size chart field on products: Shopify requires write_products to declare one ("[product]:
+# Requires the following access scope: write_products", shopify app dev, 2026-10-30), and Appsy
+# only reads products. A product gets its own chart through a product rule in Appsy instead.

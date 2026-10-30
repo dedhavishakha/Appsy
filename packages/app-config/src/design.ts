@@ -58,7 +58,7 @@ const fontName = z.string().min(1).max(64);
 export const appDesignSchema = z.object({
   markets: z.object({
     defaultCountry: countryCode,
-    // Currency conversion (Appsy's Settings page): shoppers pick any currency and prices are
+    // Currency conversion (Appsy's Functionality page): shoppers pick any currency and prices are
     // converted for display with daily exchange rates; checkout charges the market's currency.
     displayCurrencyConversion: z.boolean().default(false),
   }),
@@ -159,7 +159,7 @@ export function createDefaultDesign(shop: { defaultCountry: string }): AppDesign
         right: ["search", "currency", "bag"],
       },
     },
-    // On for new stores (your decision, 2026-10-16); Appsy's Settings page switches it.
+    // On for new stores (your decision, 2026-10-16); Appsy's Functionality page switches it.
     features: { wishlist: { enabled: true, settings: {} } },
     pages: {
       home: {},

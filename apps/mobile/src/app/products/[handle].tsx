@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BagButton } from "@/components/bag-button";
 import { Text } from "@/components/text";
 import { WishlistButton } from "@/components/wishlist-button";
-import { useViewEvent } from "@/lib/analytics";
+import { useGa4ViewItem, useViewEvent } from "@/lib/analytics";
 import { space, useColors, useSettings } from "@/lib/app-settings";
 import { pageSections, ProductContext } from "@/lib/page-context";
 import { PRODUCT_QUERY, type ProductData, type ProductDetail } from "@/lib/queries";
@@ -27,6 +27,14 @@ export default function ProductScreen() {
     id ? { id } : { handle },
   );
   useViewEvent("product_view", data?.product?.id);
+  // Its lowest price, as the product page shows before a variant is chosen.
+  const prices = data?.product?.variants.nodes.map((variant) => variant.price) ?? [];
+  const lowest = prices.reduce<(typeof prices)[number] | undefined>(
+    (cheapest, price) =>
+      !cheapest || Number(price.amount) < Number(cheapest.amount) ? price : cheapest,
+    undefined,
+  );
+  useGa4ViewItem(data?.product ?? undefined, lowest);
 
   if (isLoading) {
     return (

@@ -102,6 +102,10 @@ model AppProject {
   // (models/vault.server.ts): an AWS Secrets Manager ARN on the server.
   storeAccounts   Json?
   credentialsRef  String?
+  // The merchant's google-services.json for Google Analytics, with the Firebase project and
+  // app it names (models/google-analytics.server.ts). Not a secret (it's inside every app
+  // build), but kept here rather than on the public CDN; builds get it from Appsy.
+  firebase        Json?
   status          AppStatus        @default(setup)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt

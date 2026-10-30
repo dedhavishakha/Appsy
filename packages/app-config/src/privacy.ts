@@ -37,10 +37,27 @@ const MERCHANT_EVENTS = list(WORDS.map((words) => words.merchant));
 
 export const APP_POLICY_HEADING = "Our mobile app";
 
+// What a store's app does beyond every app: Google Analytics, when the store connects it
+// (ga4.ts).
+export type PrivacyOptions = { googleAnalytics?: boolean };
+
+// What the Google Analytics SDK collects by default, from Google's guidance for Google Play
+// (https://support.google.com/analytics/answer/11582702): an app-instance ID, the advertising
+// ID (which Appsy's apps turn off), a coarse location from the phone's masked IP address,
+// and screen views and sessions.
+const GOOGLE_ANALYTICS_PARAGRAPH = [
+  "Google Analytics. If you allow usage data, the app also sends it to Google Analytics, run",
+  "by Google, with the names and prices of the products involved and an ID Google Analytics",
+  "creates for the app on your phone. Google Analytics also records app opens and sessions,",
+  "and works out a rough location, such as your city, from your phone's IP address. Turning",
+  "usage data off stops this; what was already sent is kept as set in our Google Analytics",
+  "account.",
+];
+
 // The section a store adds to its privacy policy, as plain text to paste into Shopify. It
 // holds for every design: what depends on a setting (exchange rates, the wishlist) only
 // happens when the shopper uses it.
-export function appPolicyText(appName: string): string {
+export function appPolicyText(appName: string, options: PrivacyOptions = {}): string {
   const paragraphs = [
     [APP_POLICY_HEADING],
     [
@@ -60,6 +77,7 @@ export function appPolicyText(appName: string): string {
       "menu. If you turn usage data off, the app forgets its random ID and the usage data",
       "already sent from your phone is deleted.",
     ],
+    ...(options.googleAnalytics ? [GOOGLE_ANALYTICS_PARAGRAPH] : []),
     [
       "Shopping. Products, search results, your bag and checkout come from our online store,",
       "which runs on Shopify. When you search, the words you type are sent to Shopify to find",
@@ -96,13 +114,13 @@ export function appPolicyText(appName: string): string {
 export type DataSafetyPurpose = "Analytics" | "App functionality";
 
 // One data type to tick in the Data safety form. All of them are collected, none shared:
-// Appsy and Shopify handle the data for the store as service providers, which Google
-// doesn't count as sharing, and none of it is processed ephemerally.
+// Appsy, Shopify and Google Analytics handle the data for the store as service providers,
+// which Google doesn't count as sharing, and none of it is processed ephemerally.
 export type DataSafetyItem = {
   category: string;
   type: string;
   what: string;
-  purpose: DataSafetyPurpose;
+  purposes: DataSafetyPurpose[];
   // Shoppers can choose whether it's collected (the usage data question in the app).
   optional: boolean;
 };
@@ -114,41 +132,69 @@ const atCheckout = (category: string, type: string, what: string): DataSafetyIte
   category,
   type,
   what,
-  purpose: "App functionality",
+  purposes: ["App functionality"],
   optional: false,
 });
 
-// In the order Play Console lists them under Data types, so stores can tick them from the top.
-export const DATA_SAFETY_ITEMS: DataSafetyItem[] = [
-  atCheckout("Personal info", "Name", "Entered at checkout."),
-  atCheckout("Personal info", "Email address", "Entered at checkout."),
-  atCheckout("Personal info", "Address", "The delivery address entered at checkout."),
-  atCheckout("Personal info", "Phone number", "Entered at checkout, if the checkout asks for it."),
-  atCheckout(
+// In the order Play Console lists them under Data types, so stores can tick them from the
+// top. Google Analytics adds a rough location and analytics uses (GOOGLE_ANALYTICS_PARAGRAPH).
+export function dataSafetyItems(options: PrivacyOptions = {}): DataSafetyItem[] {
+  const ga4 = options.googleAnalytics === true;
+  const purchases = atCheckout(
     "Financial info",
-    "User payment info",
-    "Card or other payment details entered at checkout.",
-  ),
-  atCheckout("Financial info", "Purchase history", "The bag and the order placed at checkout."),
-  {
-    category: "App activity",
-    type: "App interactions",
-    what: `Usage data, after the shopper allows it: ${MERCHANT_EVENTS}, with their times.`,
-    purpose: "Analytics",
-    optional: true,
-  },
-  {
-    category: "App activity",
-    type: "In-app search history",
-    what: "The words shoppers search for, sent to Shopify to find products.",
-    purpose: "App functionality",
-    optional: false,
-  },
-  {
-    category: "Device or other IDs",
-    type: "Device or other IDs",
-    what: "The random ID the app creates when the shopper allows usage data.",
-    purpose: "Analytics",
-    optional: true,
-  },
-];
+    "Purchase history",
+    ga4
+      ? "The bag and the order placed at checkout; orders also go to Google Analytics, after the shopper allows usage data."
+      : "The bag and the order placed at checkout.",
+  );
+  return [
+    ...(ga4
+      ? [
+          {
+            category: "Location",
+            type: "Approximate location",
+            what: "Worked out by Google Analytics from the phone's IP address, after the shopper allows usage data.",
+            purposes: ["Analytics"] as DataSafetyPurpose[],
+            optional: true,
+          },
+        ]
+      : []),
+    atCheckout("Personal info", "Name", "Entered at checkout."),
+    atCheckout("Personal info", "Email address", "Entered at checkout."),
+    atCheckout("Personal info", "Address", "The delivery address entered at checkout."),
+    atCheckout("Personal info", "Phone number", "Entered at checkout, if the checkout asks for it."),
+    atCheckout(
+      "Financial info",
+      "User payment info",
+      "Card or other payment details entered at checkout.",
+    ),
+    ga4 ? { ...purchases, purposes: ["App functionality", "Analytics"] } : purchases,
+    {
+      category: "App activity",
+      type: "App interactions",
+      what: ga4
+        ? `Usage data, after the shopper allows it: ${MERCHANT_EVENTS}, with their times, sent to Appsy and Google Analytics.`
+        : `Usage data, after the shopper allows it: ${MERCHANT_EVENTS}, with their times.`,
+      purposes: ["Analytics"],
+      optional: true,
+    },
+    {
+      category: "App activity",
+      type: "In-app search history",
+      what: "The words shoppers search for, sent to Shopify to find products.",
+      purposes: ["App functionality"],
+      optional: false,
+    },
+    {
+      category: "Device or other IDs",
+      type: "Device or other IDs",
+      what: ga4
+        ? "The random ID the app creates, and Google Analytics' ID for the app on the phone, after the shopper allows usage data. Not the advertising ID."
+        : "The random ID the app creates when the shopper allows usage data.",
+      purposes: ["Analytics"],
+      optional: true,
+    },
+  ];
+}
+
+export const DATA_SAFETY_ITEMS: DataSafetyItem[] = dataSafetyItems();

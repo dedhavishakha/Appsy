@@ -2,7 +2,7 @@ import { Stack, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "@/components/text";
-import { useViewEvent } from "@/lib/analytics";
+import { useGa4ViewItemList, useViewEvent } from "@/lib/analytics";
 import { space, useColors, useSettings } from "@/lib/app-settings";
 import { CollectionContext, nearEnd, pageSections } from "@/lib/page-context";
 import { COLLECTION_QUERY, type CollectionData } from "@/lib/queries";
@@ -41,6 +41,7 @@ export default function CollectionScreen() {
   const collection = pages[0]?.collection;
   const products = pages.flatMap((page) => page.collection?.products.nodes ?? []);
   useViewEvent("collection_view", collection?.id);
+  useGa4ViewItemList(collection ?? undefined, products);
 
   const loadMore = () => {
     if (query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();

@@ -104,7 +104,8 @@ export function validateDesign(input: unknown, catalog: Catalog): DesignCheck {
   return { success: true, design: { ...design, features, pages } };
 }
 
-// Switches an app-wide feature on or off (Appsy's Settings page) and keeps the design valid.
+// Switches an app-wide feature on or off (Appsy's Functionality page) and keeps the design
+// valid.
 // On, its tab joins the tab bar if there's room, before Account; off, the tabs and header
 // buttons that need it go too.
 export function switchFeature(design: AppDesign, feature: string, on: boolean): AppDesign {

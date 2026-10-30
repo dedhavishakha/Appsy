@@ -452,7 +452,7 @@ export async function publishDraft(
   };
 }
 
-// An app-wide setting from Appsy's Settings page, which takes effect at once (Polaris:
+// An app-wide setting from Appsy's Functionality page, which takes effect at once (Polaris:
 // switches are for settings that apply immediately). The live design gets the change as a
 // new published version, without publishing unfinished editor changes; the editor's draft
 // gets it too, so its next publish keeps it. Before the first publish, the change waits in

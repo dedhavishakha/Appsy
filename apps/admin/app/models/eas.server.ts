@@ -47,6 +47,7 @@ const SKIPPED = new Set([
   "web-build",
   ".build-identity",
   ".bundled-settings.json",
+  ".google-services.json",
   ".git",
 ]);
 
@@ -71,8 +72,13 @@ const PASSED_ENV = new Set([
 const EAS_BUILD_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-// The merchant's App ID (package name) and the address of their published design.
-export type MerchantApp = { appId: string; settingsUrl: string };
+// The merchant's App ID (package name), the address of their published design, and, for
+// builds, their google-services.json when they connected Google Analytics.
+export type MerchantApp = {
+  appId: string;
+  settingsUrl: string;
+  googleServices?: string | null;
+};
 
 // What `eas build --json` and `eas build:view --json` say about a build.
 export type EasBuild = {
@@ -131,6 +137,15 @@ async function workspace(
         env: {
           EXPO_PUBLIC_SETTINGS_URL: app.settingsUrl,
           APPSY_APP_ID: app.appId,
+          // Written to a file by the build's first step (fetch-build-identity.mjs). Not a
+          // secret: it's inside the app, but Appsy doesn't put it on the public CDN.
+          ...(app.googleServices
+            ? {
+                APPSY_GOOGLE_SERVICES: Buffer.from(app.googleServices).toString(
+                  "base64",
+                ),
+              }
+            : {}),
         },
         android: { buildType: "app-bundle" },
       },

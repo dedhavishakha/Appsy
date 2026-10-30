@@ -126,6 +126,7 @@ function DesignGate() {
                     <Stack.Screen name="currency" options={modal("Currency")} />
                     <Stack.Screen name="privacy" options={modal("Privacy choices")} />
                     <Stack.Screen name="licences" options={modal("Open-source licences")} />
+                    <Stack.Screen name="size-chart" options={modal("Size chart")} />
                   </Stack>
                   {isPreview && <PreviewNavigator request={preview.navigation} />}
                 </MenuDrawerProvider>

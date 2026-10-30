@@ -8,9 +8,15 @@ import {
   type ReactNode,
 } from "react";
 import { AppState, Modal, StyleSheet, View } from "react-native";
-import type { AnalyticsEventName, AnalyticsProps } from "@appsy/app-config";
+import {
+  GA4_FEATURE,
+  type AnalyticsEventName,
+  type AnalyticsProps,
+  type Ga4Event,
+} from "@appsy/app-config";
 import { AnalyticsContext, type Consent } from "@/lib/analytics";
 import { space, useSettings } from "@/lib/app-settings";
+import { sendGa4, setGa4Collection } from "@/lib/ga4";
 import { isPreview } from "@/lib/settings";
 import { Button } from "./button";
 import { Text } from "./text";
@@ -75,6 +81,9 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
   const forgotten = useRef<string[]>([]);
   const forgetting = useRef(false);
   const granted = consent === "granted";
+  // The store's Google Analytics (Functionality page). The same answer turns it on and off;
+  // the editor's preview never sends.
+  const ga4 = !isPreview && settings.features[GA4_FEATURE]?.enabled === true;
 
   useEffect(() => {
     void Promise.all([
@@ -238,7 +247,24 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
     };
   }, [loaded, granted, endpoint, record, send]);
 
-  const value = useMemo(() => ({ consent, setConsent, track }), [consent, setConsent, track]);
+  // Firebase follows the answer once it's known: on with a yes, off (and its id forgotten)
+  // otherwise.
+  useEffect(() => {
+    if (!loaded) return;
+    setGa4Collection(ga4 && granted).catch(() => {});
+  }, [loaded, ga4, granted]);
+
+  const trackGa4 = useCallback(
+    (event: Ga4Event) => {
+      if (ga4 && granted) sendGa4(event).catch(() => {});
+    },
+    [ga4, granted],
+  );
+
+  const value = useMemo(
+    () => ({ consent, setConsent, track, trackGa4 }),
+    [consent, setConsent, track, trackGa4],
+  );
   return (
     <AnalyticsContext.Provider value={value}>
       {children}

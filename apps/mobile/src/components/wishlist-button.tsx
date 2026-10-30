@@ -1,6 +1,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Pressable, StyleSheet } from "react-native";
-import { useAnalytics } from "@/lib/analytics";
+import { ga4AddToWishlist } from "@appsy/app-config";
+import { ga4Product, useAnalytics } from "@/lib/analytics";
 import { useColors } from "@/lib/app-settings";
 import { useWishlist, type WishlistItem } from "@/lib/wishlist";
 
@@ -15,7 +16,7 @@ export function WishlistButton({
 }) {
   const colors = useColors();
   const wishlist = useWishlist();
-  const { track } = useAnalytics();
+  const { track, trackGa4 } = useAnalytics();
   const saved = wishlist.has(item.id);
 
   return (
@@ -27,7 +28,10 @@ export function WishlistButton({
       accessibilityState={{ selected: saved }}
       hitSlop={10}
       onPress={() => {
-        if (wishlist.toggle(item)) track("wishlist_add", { productId: item.id });
+        if (wishlist.toggle(item)) {
+          track("wishlist_add", { productId: item.id });
+          trackGa4(ga4AddToWishlist(item.price.currencyCode, ga4Product(item, item.price)));
+        }
       }}
       style={variant === "overlay" ? styles.overlay : styles.plain}
     >

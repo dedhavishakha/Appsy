@@ -1,5 +1,5 @@
 import { useAppBridge } from "@shopify/app-bridge-react";
-import { appPolicyText, DATA_SAFETY_ITEMS } from "@appsy/app-config";
+import { appPolicyText, dataSafetyItems } from "@appsy/app-config";
 import type { PrivacyPolicy } from "../models/privacy-policy.server";
 
 // What every store needs from Appsy for its app's privacy, on the Publishing page: the
@@ -18,11 +18,17 @@ const GOOGLE_HELP = {
     "https://support.google.com/googleplay/android-developer/answer/9859455",
 };
 
-type Props = { appName: string; policy: PrivacyPolicy };
+type Props = {
+  appName: string;
+  policy: PrivacyPolicy;
+  // Whether the store's app sends Google Analytics its events (Functionality page).
+  googleAnalytics: boolean;
+};
 
-export function PrivacyForms({ appName, policy }: Props) {
+export function PrivacyForms({ appName, policy, googleAnalytics }: Props) {
   const shopify = useAppBridge();
-  const text = appPolicyText(appName);
+  const text = appPolicyText(appName, { googleAnalytics });
+  const items = dataSafetyItems({ googleAnalytics });
 
   const copy = async (value: string, done: string) => {
     try {
@@ -125,12 +131,12 @@ export function PrivacyForms({ appName, policy }: Props) {
           </s-list-item>
         </s-unordered-list>
         <s-paragraph>
-          Under Data types, tick these {DATA_SAFETY_ITEMS.length} and nothing
-          else. They&apos;re in the order Play Console lists them. Under Data
-          usage and handling, mark each one as collected, not shared and not
-          processed ephemerally, with the purpose and choice shown here. Appsy
-          and Shopify handle the data for you as service providers, which Google
-          doesn&apos;t count as sharing.
+          Under Data types, tick these {items.length} and nothing else.
+          They&apos;re in the order Play Console lists them. Under Data usage
+          and handling, mark each one as collected, not shared and not processed
+          ephemerally, with the purposes and choice shown here. Appsy, Shopify
+          {googleAnalytics ? " and Google Analytics" : ""} handle the data for
+          you as service providers, which Google doesn&apos;t count as sharing.
         </s-paragraph>
         <s-table>
           <s-table-header-row>
@@ -138,13 +144,13 @@ export function PrivacyForms({ appName, policy }: Props) {
             <s-table-header listSlot="secondary">
               What your app sends
             </s-table-header>
-            <s-table-header listSlot="labeled">Purpose</s-table-header>
+            <s-table-header listSlot="labeled">Purposes</s-table-header>
             <s-table-header listSlot="labeled">
               Shoppers can choose
             </s-table-header>
           </s-table-header-row>
           <s-table-body>
-            {DATA_SAFETY_ITEMS.map((item) => (
+            {items.map((item) => (
               <s-table-row key={item.type}>
                 <s-table-cell>
                   {item.category === item.type
@@ -152,7 +158,7 @@ export function PrivacyForms({ appName, policy }: Props) {
                     : `${item.category} › ${item.type}`}
                 </s-table-cell>
                 <s-table-cell>{item.what}</s-table-cell>
-                <s-table-cell>{item.purpose}</s-table-cell>
+                <s-table-cell>{item.purposes.join(", ")}</s-table-cell>
                 <s-table-cell>
                   {item.optional ? "Yes" : "No (required)"}
                 </s-table-cell>

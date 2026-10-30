@@ -1,7 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
-import * as WebBrowser from "expo-web-browser";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -13,11 +12,13 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ga4BeginCheckout, ga4Purchase, withoutCodeStart } from "@appsy/app-config";
 import { Button } from "@/components/button";
 import { Text, TextInput } from "@/components/text";
-import { useAnalytics } from "@/lib/analytics";
+import { ga4Line, useAnalytics } from "@/lib/analytics";
 import { gutter, space, useColors } from "@/lib/app-settings";
-import { CART_KEY, useCart, useCartActions } from "@/lib/cart";
+import { CART_KEY, useCart, useCartActions, useCodeStart } from "@/lib/cart";
+import { openCheckout } from "@/lib/checkout";
 import { useMoney } from "@/lib/currency";
 import { formatMoney, imageUrl, type Money } from "@/lib/format";
 import { BORDER } from "@/lib/menu-drawer";
@@ -33,17 +34,35 @@ export default function CartScreen() {
   const queryClient = useQueryClient();
   const { data: cart, isLoading } = useCart();
   const { setQuantity } = useCartActions();
-  const { track } = useAnalytics();
+  const codeStart = useCodeStart();
+  const { track, trackGa4 } = useAnalytics();
   const [opening, setOpening] = useState(false);
 
-  // Shopify's own checkout in an in-app browser. Checkout Kit's native sheet replaces it
-  // in development and store builds; Expo Go can't load that native module.
+  // Shopify's own checkout, with Checkout Kit in phone builds and the in-app browser
+  // elsewhere (lib/checkout). Google Analytics gets the bag as it goes to checkout, and the
+  // order when Checkout Kit says one was placed.
   const checkout = async () => {
     if (!cart) return;
     track("checkout_started", { items: cart.totalQuantity });
+    const currency = cart.cost.totalAmount.currencyCode;
+    const items = cart.lines.nodes.map(ga4Line);
+    const code = cart.discountCodes.find((entry) => entry.applicable)?.code;
+    const coupon = code ? withoutCodeStart(code, codeStart) : undefined;
+    trackGa4(ga4BeginCheckout(currency, items, coupon));
     setOpening(true);
     try {
-      await WebBrowser.openBrowserAsync(cart.checkoutUrl);
+      await openCheckout(cart, (order) =>
+        trackGa4(
+          ga4Purchase({
+            orderId: order.id,
+            currency,
+            items,
+            coupon,
+            tax: order.tax,
+            shipping: order.shipping,
+          }),
+        ),
+      );
     } finally {
       setOpening(false);
       // After an order, Shopify ends the cart, so refetching empties the bag.
@@ -66,7 +85,7 @@ export default function CartScreen() {
     );
   }
 
-  const discounts = discountTotals(cart);
+  const discounts = discountTotals(cart, codeStart);
   const charged = cart.cost.totalAmount;
 
   return (
@@ -124,15 +143,15 @@ export default function CartScreen() {
 }
 
 // The bag's discounts, each one added up across the lines it applies to, and the price of
-// everything before any discount.
-function discountTotals(cart: Cart) {
+// everything before any discount. App-only codes show without the store's code start.
+function discountTotals(cart: Cart, codeStart: string | null) {
   const currencyCode = cart.cost.totalAmount.currencyCode;
   const sums = new Map<string, number>();
   let before = 0;
   for (const line of cart.lines.nodes) {
     before += Number(line.cost.subtotalAmount.amount);
     for (const allocation of line.discountAllocations) {
-      const label = allocation.title || allocation.code || "Discount";
+      const label = withoutCodeStart(allocation.title || allocation.code || "Discount", codeStart);
       sums.set(label, (sums.get(label) ?? 0) + Number(allocation.discountedAmount.amount));
     }
   }
@@ -175,6 +194,7 @@ function SummaryRow({
 function DiscountCodes({ cart }: { cart: Cart }) {
   const colors = useColors();
   const { applyCode, removeCode } = useCartActions();
+  const codeStart = useCodeStart();
   const [code, setCode] = useState("");
 
   return (
@@ -206,12 +226,12 @@ function DiscountCodes({ cart }: { cart: Cart }) {
         <View key={entry.code} style={styles.appliedCode}>
           <Ionicons name="pricetag-outline" size={14} color={colors.text} />
           <Text style={[styles.appliedText, { color: colors.text }]}>
-            {entry.code}
+            {withoutCodeStart(entry.code, codeStart)}
             {entry.applicable ? "" : " · applies once your bag qualifies"}
           </Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Remove ${entry.code}`}
+            accessibilityLabel={`Remove ${withoutCodeStart(entry.code, codeStart)}`}
             disabled={removeCode.isPending}
             onPress={() => removeCode.mutate(entry.code)}
             hitSlop={8}

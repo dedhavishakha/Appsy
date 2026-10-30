@@ -19,3 +19,6 @@ expo-env.d.ts
 
 # The app's name, icon and splash screen from Appsy, for builds (fetch-build-identity.mjs)
 .build-identity/
+
+# The merchant's Firebase file for Google Analytics, for builds (fetch-build-identity.mjs)
+.google-services.json

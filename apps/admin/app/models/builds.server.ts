@@ -7,6 +7,7 @@ import {
   type BuildStatus,
 } from "./builds";
 import { liveKey, loadStatus } from "./design.server";
+import { firebaseFileFor } from "./google-analytics.server";
 import { identitySchema } from "./identity";
 import { identityKey } from "./identity.server";
 import {
@@ -171,7 +172,10 @@ export async function startBuild(
     },
   });
   keepChecking();
-  void begin(build.id, merchantApp(appProjectId, appId));
+  // The merchant's Firebase file, when they gave one for this App ID (Google Analytics,
+  // Functionality page): the build includes Firebase only then.
+  const googleServices = await firebaseFileFor(appProjectId, appId);
+  void begin(build.id, { ...merchantApp(appProjectId, appId), googleServices });
   return { issues: [], notice: "Build started" };
 }
 

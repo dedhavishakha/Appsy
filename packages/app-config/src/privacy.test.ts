@@ -3,6 +3,7 @@ import {
   APP_POLICY_HEADING,
   appPolicyText,
   DATA_SAFETY_ITEMS,
+  dataSafetyItems,
   USAGE_DATA_KEEP_MONTHS,
 } from "./index";
 
@@ -33,13 +34,33 @@ describe("the section stores add to their privacy policy", () => {
   it("pastes as plain paragraphs", () => {
     expect(text).not.toMatch(/ {2}|\n{3}|^ | $/m);
   });
+
+  it("mentions Google Analytics only for stores that use it", () => {
+    expect(text).not.toContain("Google Analytics");
+    const withGa4 = appPolicyText("Local noodle", { googleAnalytics: true });
+    expect(withGa4).toContain("Google Analytics. If you allow usage data");
+    expect(withGa4).not.toMatch(/ {2}|\n{3}|^ | $/m);
+  });
 });
 
 describe("Data safety answers", () => {
   it("make only usage data optional, for analytics", () => {
     const optional = DATA_SAFETY_ITEMS.filter((item) => item.optional);
     expect(optional.map((item) => item.type)).toEqual(["App interactions", "Device or other IDs"]);
-    expect(optional.every((item) => item.purpose === "Analytics")).toBe(true);
+    expect(optional.every((item) => item.purposes.join() === "Analytics")).toBe(true);
+  });
+
+  it("add a rough location and analytics for purchases when Google Analytics is on", () => {
+    const items = dataSafetyItems({ googleAnalytics: true });
+    expect(items[0]).toMatchObject({ type: "Approximate location", optional: true });
+    expect(items.find((item) => item.type === "Purchase history")?.purposes).toEqual([
+      "App functionality",
+      "Analytics",
+    ]);
+    expect(items.map((item) => item.type)).toEqual([
+      "Approximate location",
+      ...DATA_SAFETY_ITEMS.map((item) => item.type),
+    ]);
   });
 
   it("list each data type once", () => {

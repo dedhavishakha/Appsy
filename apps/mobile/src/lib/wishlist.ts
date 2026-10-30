@@ -29,7 +29,7 @@ export function useWishlist(): Wishlist {
   return wishlist;
 }
 
-// Whether the merchant has the wishlist switched on (Appsy's Settings page).
+// Whether the merchant has the wishlist switched on (Appsy's Functionality page).
 export function useWishlistEnabled(): boolean {
   return useSettings().features.wishlist?.enabled === true;
 }

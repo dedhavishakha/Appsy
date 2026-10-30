@@ -1,4 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { router } from "expo-router";
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import type { z } from "zod";
@@ -21,6 +22,7 @@ import { useMoney } from "@/lib/currency";
 import { isDiscounted } from "@/lib/format";
 import type { ProductDetail } from "@/lib/queries";
 import type { ProductSelection } from "@/lib/product-selection";
+import { useSizeChartId } from "@/lib/size-chart";
 import { paragraphs } from "@/lib/text";
 
 // What the Product details section shares with its blocks.
@@ -72,11 +74,33 @@ export function ProductPrice({ settings, state }: Props<typeof productPrice.sett
   );
 }
 
+// The product's options, then a "Size chart" link when it has a chart (lib/size-chart.ts).
 export function VariantPicker({ settings, state }: Props<typeof variantPicker.settings>) {
+  const colors = useColors();
+  const chart = useSizeChartId(state.product);
+  return (
+    <>
+      <Options state={state} showNames={settings.showOptionNames} />
+      {settings.sizeChart && chart && (
+        <Pressable
+          accessibilityRole="link"
+          onPress={() => router.push({ pathname: "/size-chart", params: { id: chart } })}
+          hitSlop={8}
+          style={styles.sizeChart}
+        >
+          <Ionicons name="resize-outline" size={16} color={colors.text} />
+          <Text style={[styles.sizeChartLabel, { color: colors.text }]}>Size chart</Text>
+        </Pressable>
+      )}
+    </>
+  );
+}
+
+function Options({ state, showNames }: { state: ProductBlockState; showNames: boolean }) {
   const colors = useColors();
   return state.options.map((option) => (
     <View key={option.name} style={styles.option}>
-      {(settings.showOptionNames || (state.showHint && !state.chosen[option.name])) && (
+      {(showNames || (state.showHint && !state.chosen[option.name])) && (
         <Text style={[styles.optionName, { color: colors.text }]}>
           {state.showHint && !state.chosen[option.name]
             ? `Please choose a ${option.name.toLowerCase()}`
@@ -220,6 +244,8 @@ const styles = StyleSheet.create({
   option: { gap: space.sm },
   optionName: { fontSize: 12, letterSpacing: 1, textTransform: "uppercase" },
   choices: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  sizeChart: { flexDirection: "row", alignItems: "center", gap: space.xs, alignSelf: "flex-start" },
+  sizeChartLabel: { fontSize: 14, textDecorationLine: "underline" },
   choice: {
     borderWidth: 1,
     paddingHorizontal: space.md,

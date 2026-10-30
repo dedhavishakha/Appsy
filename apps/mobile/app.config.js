@@ -9,7 +9,11 @@ const { join } = require("node:path");
 //   first (scripts/fetch-build-identity.mjs); `npm run dev` writes it from your local Appsy;
 // - the app's name, icon and splash screen that the merchant saved in Appsy (Publishing
 //   page), which builds download first as well, into .build-identity/. Without them the name
-//   is the design's app name (Expo Go shows it too), else "Appsy", with Expo's defaults.
+//   is the design's app name (Expo Go shows it too), else "Appsy", with Expo's defaults;
+// - Firebase, for Google Analytics, only when the merchant's google-services.json is here
+//   (fetch-build-identity.mjs writes it): React Native Firebase's Expo plugin stops a build
+//   that has none, and react-native.config.js leaves its native code out without it.
+// No build uses the phone's advertising ID, so its permission is removed from every build.
 // Plain JavaScript, so it needs no Node.js type definitions in the app's TypeScript setup.
 
 /** Reads a JSON file next to this one, or null if it isn't there. */
@@ -24,6 +28,10 @@ const SPLASH_IMAGE_WIDTH = 200;
 // one fails ("drawable/splashscreen_logo not found"). Until the merchant saves an icon, this
 // transparent one leaves only the background colour.
 const BLANK_SPLASH = "./assets/splash-blank.png";
+// The merchant's Firebase file (react-native.config.js looks for the same one).
+const GOOGLE_SERVICES = "./.google-services.json";
+// Firebase's SDK adds it; Expo's blockedPermissions removes it from the final manifest.
+const AD_ID_PERMISSION = "com.google.android.gms.permission.AD_ID";
 
 /**
  * @param {import("expo/config").ConfigContext} context
@@ -40,6 +48,7 @@ module.exports = ({ config, projectRoot }) => {
   // A merchant's builds, started by Appsy's server, carry their App ID (Publishing › Store
   // accounts) as the bundle ID and package name; without it, app.json's own test app ID.
   const appId = process.env.APPSY_APP_ID;
+  const firebase = !preview && existsSync(join(projectRoot, GOOGLE_SERVICES));
   return {
     ...config,
     name:
@@ -51,6 +60,8 @@ module.exports = ({ config, projectRoot }) => {
     android: {
       ...config.android,
       ...(appId ? { package: appId } : {}),
+      ...(firebase ? { googleServicesFile: GOOGLE_SERVICES } : {}),
+      blockedPermissions: [...(config.android?.blockedPermissions ?? []), AD_ID_PERMISSION],
       ...(identity?.android
         ? {
             adaptiveIcon: {
@@ -72,11 +83,14 @@ module.exports = ({ config, projectRoot }) => {
           imageWidth: SPLASH_IMAGE_WIDTH,
         },
       ],
+      ...(firebase ? ["@react-native-firebase/app"] : []),
     ],
     experiments: {
       ...config.experiments,
       ...(preview ? { baseUrl: "/preview" } : {}),
     },
-    extra: { ...config.extra, ...(bundledSettings ? { bundledSettings } : {}) },
+    // `firebase`: whether this build has Firebase, so the app only reaches for it then
+    // (src/lib/ga4.native.ts).
+    extra: { ...config.extra, ...(bundledSettings ? { bundledSettings } : {}), firebase },
   };
 };

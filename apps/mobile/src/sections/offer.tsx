@@ -1,22 +1,25 @@
 import { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import type { z } from "zod";
+import { withoutCodeStart } from "@appsy/app-config";
 import type { offer } from "@appsy/sections/manifests";
 import { PreviewNote } from "@/components/preview-note";
 import { Text } from "@/components/text";
 import { gutter, space, useSettings } from "@/lib/app-settings";
-import { useCartActions } from "@/lib/cart";
+import { useCartActions, useCodeStart } from "@/lib/cart";
 import { isPreview } from "@/lib/settings";
 
 type Settings = z.output<typeof offer.settings>;
 
 // A coupon card with the merchant's discount code. "Apply to bag" adds the code to the
 // shopper's bag, where Shopify works out the discount; a press and hold copies the code.
+// An app-only code shows without the store's code start, whichever way the merchant typed it.
 export function Offer({ settings }: { settings: Settings }) {
   const { colors, buttons } = useSettings().theme;
   const { applyCode } = useCartActions();
+  const codeStart = useCodeStart();
   const [message, setMessage] = useState<string | null>(null);
-  const code = settings.code.trim();
+  const code = withoutCodeStart(settings.code.trim(), codeStart);
   if (!code) return <PreviewNote text="Add the discount code this offer shows." />;
 
   const filled = settings.style === "filled";
