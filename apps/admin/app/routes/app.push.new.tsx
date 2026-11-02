@@ -22,7 +22,7 @@ import { loadDesign, loadPages } from "../models/design.server";
 import { storefrontQuery } from "../models/storefront.server";
 import {
   createCampaign,
-  loadPushKey,
+  loadPushKeys,
   pushPictureUrl,
   sendTest,
 } from "../models/push.server";
@@ -35,7 +35,8 @@ import { usePickImage } from "../components/use-pick-image";
 
 // A new push notification (models/push.server.ts): its words, picture and link, who gets it
 // and when, with a test to the merchant's own phone first. Appsy's server sends it straight
-// to Google with the store's Firebase key.
+// to Google with the store's Firebase key for Android phones, and to Apple with its APNs key
+// for iPhones.
 
 // The countries the store sells to (Shopify Markets), read the way phones read them.
 const COUNTRIES_QUERY = `#graphql
@@ -51,9 +52,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session, scopes } = await authenticate.admin(request);
   const shop = await ensureShopSetup(admin, session.shop);
   const appProjectId = shop.appProject.id;
-  const [design, key, pages, markets, granted] = await Promise.all([
+  const [design, keys, pages, markets, granted] = await Promise.all([
     loadDesign(appProjectId),
-    loadPushKey(appProjectId),
+    loadPushKeys(appProjectId),
     loadPages(shop).catch((error) => {
       console.error(`Pages for ${session.shop}:`, error);
       return [];
@@ -77,7 +78,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     (a, b) => a.name.localeCompare(b.name),
   );
   return {
-    ready: pushOn(design) && key !== null,
+    ready: pushOn(design) && (keys.firebase !== null || keys.apple !== null),
     appName: shop.appProject.appName,
     pages,
     countries,
@@ -268,9 +269,9 @@ export default function NewPushNotification() {
       {!ready && (
         <s-banner tone="warning" heading="Push notifications aren't ready">
           <s-paragraph>
-            Turn them on and connect your Firebase key under Push notifications
-            on the <s-link href="/app/functionality">Functionality page</s-link>
-            .
+            Turn them on and connect your Firebase key or APNs key under Push
+            notifications on the{" "}
+            <s-link href="/app/functionality">Functionality page</s-link>.
           </s-paragraph>
         </s-banner>
       )}
@@ -314,7 +315,7 @@ export default function NewPushNotification() {
           />
           <s-text color="subdued">
             Optional. Android shows it when the shopper expands the
-            notification.
+            notification; iPhones show the notification without it.
           </s-text>
           <LinkPicker
             label="When tapped, open"

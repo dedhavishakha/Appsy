@@ -15,20 +15,25 @@ import {
   type PushMessage,
 } from "@appsy/app-config";
 import db from "../db.server";
+import { apnsSender } from "./apns.server";
 import { loadFirebase } from "./google-analytics.server";
+import { APPLE_KEY_ID, storeAccountsSchema } from "./store-accounts";
 import { googleToken } from "./store-apis.server";
 import {
   getStoreKeys,
   keepStoreKeys,
   putStoreKeys,
+  type ApnsKey,
   type GoogleServiceAccount,
+  type StoreKeys,
 } from "./vault.server";
 
 // Push notifications on Appsy's side (app-config push.ts; doc 03, section I): the phones that
-// allowed them (routes/api.push.*), the merchant's Firebase key, and campaigns, which a check
-// every 30 seconds sends straight to Google's Firebase Cloud Messaging (FCM HTTP v1) with that
-// key. Bag reminders never come here: each phone schedules its own. Messages are written for
-// the merchant; logs never include keys or phones' addresses.
+// allowed them (routes/api.push.*), the merchant's keys, and campaigns, which a check every 30
+// seconds sends straight to Google's Firebase Cloud Messaging (FCM HTTP v1) with their
+// Firebase key for Android phones, and to Apple's push service with their APNs key for
+// iPhones (apns.server.ts). Bag reminders never come here: each phone schedules its own.
+// Messages are written for the merchant; logs never include keys or phones' addresses.
 
 const FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 const fcmSendUrl = (projectId: string) =>
@@ -61,13 +66,28 @@ const PICTURE_QUERY = `#graphql
     }
   }`;
 
-// What the Functionality page shows about the key; the key itself is in the vault.
-const keyStatusSchema = z.object({
+// What the Functionality page shows about the keys (AppProject.push); the keys themselves are
+// in the vault.
+const firebaseKeySchema = z.object({
   projectId: z.string(),
   clientEmail: z.string(),
   checkedAt: z.iso.datetime(),
 });
-export type PushKeyStatus = z.output<typeof keyStatusSchema>;
+const appleKeySchema = z.object({
+  keyId: z.string(),
+  teamId: z.string(),
+  checkedAt: z.iso.datetime(),
+});
+const pushKeysSchema = z.object({
+  firebase: firebaseKeySchema.optional(),
+  apple: appleKeySchema.optional(),
+});
+export type FirebaseKeyStatus = z.output<typeof firebaseKeySchema>;
+export type AppleKeyStatus = z.output<typeof appleKeySchema>;
+export type PushKeys = {
+  firebase: FirebaseKeyStatus | null;
+  apple: AppleKeyStatus | null;
+};
 
 // The fields Appsy keeps from the key file Firebase gives (Project settings › Service
 // accounts › Generate new private key).
@@ -79,15 +99,44 @@ const keyFileSchema = z.object({
   private_key_id: z.string().optional(),
 });
 
-export async function loadPushKey(
-  appProjectId: string,
-): Promise<PushKeyStatus | null> {
+// Before iPhones (2026-10-31), AppProject.push was the Firebase key's status itself.
+function readPushKeys(value: unknown): PushKeys {
+  const before = firebaseKeySchema.safeParse(value);
+  if (before.success) return { firebase: before.data, apple: null };
+  const keys = pushKeysSchema.safeParse(value);
+  return {
+    firebase: (keys.success && keys.data.firebase) || null,
+    apple: (keys.success && keys.data.apple) || null,
+  };
+}
+
+export async function loadPushKeys(appProjectId: string): Promise<PushKeys> {
   const project = await db.appProject.findUnique({
     where: { id: appProjectId },
     select: { push: true },
   });
-  const status = keyStatusSchema.safeParse(project?.push);
-  return status.success ? status.data : null;
+  return readPushKeys(project?.push);
+}
+
+// Saves where the keys are now and one key's status, keeping the other's. Returns both.
+async function saveKeyStatus(
+  appProjectId: string,
+  credentialsRef: string | null,
+  change: Partial<PushKeys>,
+): Promise<PushKeys> {
+  const keys = { ...(await loadPushKeys(appProjectId)), ...change };
+  const push = {
+    ...(keys.firebase ? { firebase: keys.firebase } : {}),
+    ...(keys.apple ? { apple: keys.apple } : {}),
+  };
+  await db.appProject.update({
+    where: { id: appProjectId },
+    data: {
+      credentialsRef,
+      push: keys.firebase || keys.apple ? push : Prisma.DbNull,
+    },
+  });
+  return keys;
 }
 
 // Keeps the merchant's Firebase key once it's for the same Firebase project as the app's
@@ -132,31 +181,99 @@ export async function connectPushKey(
     ...stored,
     firebase: { serviceAccount },
   });
-  const status: PushKeyStatus = {
-    projectId: file.data.project_id,
-    clientEmail: file.data.client_email,
-    checkedAt: new Date().toISOString(),
-  };
-  await db.appProject.update({
-    where: { id: appProjectId },
-    data: { credentialsRef, push: status },
+  await saveKeyStatus(appProjectId, credentialsRef, {
+    firebase: {
+      projectId: file.data.project_id,
+      clientEmail: file.data.client_email,
+      checkedAt: new Date().toISOString(),
+    },
   });
   return [];
 }
 
-// Removes the key. Scheduled campaigns can't be sent without it, so they're canceled.
+// Removes the key: Android phones get no campaigns without it. With no key left, scheduled
+// campaigns can't be sent, so they're canceled.
 export async function removePushKey(appProjectId: string) {
   const keys = { ...(await getStoreKeys(appProjectId)) };
   delete keys.firebase;
   const credentialsRef = await keepStoreKeys(appProjectId, keys);
-  await db.appProject.update({
-    where: { id: appProjectId },
-    data: { credentialsRef, push: Prisma.DbNull },
+  const left = await saveKeyStatus(appProjectId, credentialsRef, {
+    firebase: null,
   });
-  await cancelScheduled(
-    appProjectId,
-    "Not sent: the Firebase key was removed.",
-  );
+  if (!left.apple) {
+    await cancelScheduled(
+      appProjectId,
+      "Not sent: the Firebase key was removed.",
+    );
+  }
+}
+
+// Keeps the merchant's APNs key (.p8, with its Key ID) once Apple takes it for the App ID.
+// It belongs to the Apple team of their App Store account (Publishing › Store accounts),
+// whose Team ID is kept with it. Otherwise says what's wrong in the merchant's words.
+export async function connectApnsKey(
+  appProjectId: string,
+  keyIdText: string,
+  text: string,
+): Promise<string[]> {
+  const keyId = keyIdText.trim().toUpperCase();
+  if (!APPLE_KEY_ID.test(keyId)) {
+    return [
+      "Enter the key's Key ID: 10 letters and numbers, like 2X9R4HXF34, shown below the key's name in your Apple Developer account.",
+    ];
+  }
+  if (text.length > MAX_KEY_BYTES) {
+    return ["This file is too large to be an APNs key (.p8)."];
+  }
+  const project = await db.appProject.findUniqueOrThrow({
+    where: { id: appProjectId },
+    select: { iosBundleId: true, storeAccounts: true },
+  });
+  if (!project.iosBundleId) {
+    return [
+      "Choose your App ID on the Publishing page first: your iPhone app uses it as its bundle ID.",
+    ];
+  }
+  const accounts = storeAccountsSchema.safeParse(project.storeAccounts ?? {});
+  const teamId = accounts.success ? accounts.data.apple?.teamId : undefined;
+  if (!teamId) {
+    return [
+      "Connect your App Store account under Store accounts on the Publishing page first: the key must be from the same Apple team.",
+    ];
+  }
+  const key: ApnsKey = { keyId, teamId, privateKey: text.trim() };
+  const sender = apnsSender(key, project.iosBundleId);
+  let problem: string | null;
+  try {
+    problem = await sender.check();
+  } finally {
+    sender.close();
+  }
+  if (problem) return [problem];
+
+  const stored = await getStoreKeys(appProjectId);
+  const credentialsRef = await putStoreKeys(appProjectId, {
+    ...stored,
+    apns: key,
+  });
+  await saveKeyStatus(appProjectId, credentialsRef, {
+    apple: { keyId, teamId, checkedAt: new Date().toISOString() },
+  });
+  return [];
+}
+
+// Removes the APNs key: iPhones get no campaigns without it. With no key left, scheduled
+// campaigns are canceled.
+export async function removeApnsKey(appProjectId: string) {
+  const keys = { ...(await getStoreKeys(appProjectId)) };
+  delete keys.apns;
+  const credentialsRef = await keepStoreKeys(appProjectId, keys);
+  const left = await saveKeyStatus(appProjectId, credentialsRef, {
+    apple: null,
+  });
+  if (!left.firebase) {
+    await cancelScheduled(appProjectId, "Not sent: the APNs key was removed.");
+  }
 }
 
 // When push notifications are switched off, or the key goes: nothing scheduled goes out.
@@ -254,13 +371,14 @@ export type CampaignRow = {
 };
 
 export async function loadCampaigns(appProjectId: string) {
-  const [campaigns, phones] = await Promise.all([
+  const [campaigns, android, ios] = await Promise.all([
     db.pushCampaign.findMany({
       where: { appProjectId },
       orderBy: { createdAt: "desc" },
       take: SHOWN_CAMPAIGNS,
     }),
-    db.pushDevice.count({ where: { appProjectId } }),
+    db.pushDevice.count({ where: { appProjectId, platform: "android" } }),
+    db.pushDevice.count({ where: { appProjectId, platform: "ios" } }),
   ]);
   const rows: CampaignRow[] = campaigns.map((campaign) => ({
     id: campaign.id,
@@ -276,7 +394,7 @@ export async function loadCampaigns(appProjectId: string) {
     opened: campaign.opened,
     error: campaign.error,
   }));
-  return { campaigns: rows, phones };
+  return { campaigns: rows, phones: { android, ios } };
 }
 
 // The address of the smaller copy of the chosen picture that phones download.
@@ -318,9 +436,10 @@ export async function createCampaign(
   imageUrl: string | null,
   createdBy: string | null,
 ): Promise<string[]> {
-  if (!(await loadPushKey(appProjectId))) {
+  const keys = await loadPushKeys(appProjectId);
+  if (!keys.firebase && !keys.apple) {
     return [
-      "Connect your Firebase key under Push notifications on the Functionality page first.",
+      "Connect your Firebase key or APNs key under Push notifications on the Functionality page first.",
     ];
   }
   const now = Date.now();
@@ -335,7 +454,7 @@ export async function createCampaign(
   const sample = messageOf(input, imageUrl, randomUUID());
   if (!pushMessageFits(sample)) {
     return [
-      "This notification is too long for Google. Shorten the message, or choose a link with a shorter name.",
+      "This notification is too long for Google or Apple. Shorten the message, or choose a link with a shorter name.",
     ];
   }
   await db.pushCampaign.create({
@@ -380,7 +499,7 @@ export async function sendTest(
   }
   const phones = await db.pushDevice.findMany({
     where: { appProjectId, testCode },
-    select: { token: true },
+    select: { token: true, platform: true },
     take: 2,
   });
   if (phones.length === 0) {
@@ -393,33 +512,75 @@ export async function sendTest(
       "More than one phone has this code. Turn notifications off and on again in the app for a new one.",
     ];
   }
-  const keys = await getStoreKeys(appProjectId);
-  const serviceAccount = keys?.firebase?.serviceAccount;
-  if (!serviceAccount) {
-    return ["Connect your Firebase key on the Functionality page first."];
+  const phone = phones[0]!;
+  const iphone = phone.platform === "ios";
+  const project = await db.appProject.findUnique({
+    where: { id: appProjectId },
+    select: { iosBundleId: true },
+  });
+  const sender = sendersFor(
+    await getStoreKeys(appProjectId),
+    project?.iosBundleId ?? null,
+  )[iphone ? "ios" : "android"];
+  if (!sender) {
+    return [
+      iphone
+        ? "This code is an iPhone's. Connect your APNs key on the Functionality page first."
+        : "This code is an Android phone's. Connect your Firebase key on the Functionality page first.",
+    ];
   }
-  const outcome = await fcmSender(serviceAccount).deliver(
-    phones[0]!.token,
-    messageOf(campaign, imageUrl),
-  );
+  let outcome: Outcome;
+  try {
+    outcome = await sender.deliver(phone.token, messageOf(campaign, imageUrl));
+  } finally {
+    sender.close();
+  }
+  const company = iphone ? "Apple" : "Google";
   if (outcome === "sent") return [];
   if (outcome === "gone") {
     await db.pushDevice.deleteMany({
-      where: { appProjectId, token: phones[0]!.token },
+      where: { appProjectId, token: phone.token },
     });
     return [
-      "Google says this phone can no longer get notifications from your app, for example because the app was removed. Open the app again to register it.",
+      `${company} says this phone can no longer get notifications from your app, for example because the app was removed. Open the app again to register it.`,
     ];
   }
   if (outcome === "failed") {
-    return ["Google didn't take the test. Please try again."];
+    return [`${company} didn't take the test. Please try again in a minute.`];
   }
   return [outcome.stop];
 }
 
-// --- Sending to Google ---------------------------------------------------------------
+// --- Sending -------------------------------------------------------------------------
 
-type Outcome = "sent" | "gone" | "failed" | { stop: string };
+// What happened to one notification: sent; the phone's address no longer works (it's
+// deleted); not sent this time; or a problem every phone of that platform would meet, which
+// stops sending to them.
+export type Outcome = "sent" | "gone" | "failed" | { stop: string };
+
+type Platform = "android" | "ios";
+
+type Sender = {
+  deliver(token: string, message: PushMessage): Promise<Outcome>;
+  close(): void;
+};
+
+// A sender for each platform the app has a key for: Google's FCM for Android phones, Apple's
+// push service for iPhones, which also needs the App ID.
+function sendersFor(
+  keys: StoreKeys | null,
+  bundleId: string | null,
+): Partial<Record<Platform, Sender>> {
+  const serviceAccount = keys?.firebase?.serviceAccount;
+  return {
+    ...(serviceAccount?.project_id
+      ? { android: fcmSender(serviceAccount) }
+      : {}),
+    ...(keys?.apns && bundleId ? { ios: apnsSender(keys.apns, bundleId) } : {}),
+  };
+}
+
+// --- Sending to Google ---------------------------------------------------------------
 
 type FcmError = {
   status: number;
@@ -620,6 +781,9 @@ function fcmSender(serviceAccount: GoogleServiceAccount) {
       }
       return `Google didn't take the test message (error ${response.status}). Try again.`;
     },
+
+    // Google's requests share no connection of their own to close.
+    close() {},
   };
 }
 
@@ -656,13 +820,33 @@ async function finish(
   });
 }
 
+const PHONES: Record<Platform, string> = {
+  android: "Android phones",
+  ios: "iPhones",
+};
+
+// Why some phones weren't sent the campaign, by platform.
+const notSent = (stopped: Partial<Record<Platform, string>>) =>
+  Object.entries(stopped)
+    .map(
+      ([platform, why]) =>
+        `Not sent to ${PHONES[platform as Platform]}: ${why}`,
+    )
+    .join(" ");
+
 // Sends a claimed campaign page by page, saving its progress after each page so a restart
-// carries on from the last phone it reached.
+// carries on from the last phone it reached. It goes to the platforms the app has keys for
+// now; a problem with one platform's key stops sending to that platform only.
 async function sendCampaign(id: string) {
   const campaign = await db.pushCampaign.findUnique({
     where: { id },
     include: {
-      appProject: { select: { shop: { select: { uninstalledAt: true } } } },
+      appProject: {
+        select: {
+          iosBundleId: true,
+          shop: { select: { uninstalledAt: true } },
+        },
+      },
     },
   });
   if (!campaign || campaign.status !== "sending") return;
@@ -674,13 +858,16 @@ async function sendCampaign(id: string) {
     );
     return;
   }
-  const keys = await getStoreKeys(campaign.appProjectId);
-  const serviceAccount = keys?.firebase?.serviceAccount;
-  if (!serviceAccount?.project_id) {
+  const senders = sendersFor(
+    await getStoreKeys(campaign.appProjectId),
+    campaign.appProject.iosBundleId,
+  );
+  const platforms = Object.keys(senders) as Platform[];
+  if (platforms.length === 0) {
     await finish(
       id,
       "failed",
-      "Not sent: connect your Firebase key on the Functionality page, then create it again.",
+      "Not sent: connect your Firebase key or APNs key on the Functionality page, then create it again.",
     );
     return;
   }
@@ -696,6 +883,7 @@ async function sendCampaign(id: string) {
   );
   const audience: Prisma.PushDeviceWhereInput = {
     appProjectId: campaign.appProjectId,
+    platform: { in: platforms },
     ...(campaign.countries.length > 0
       ? { country: { in: campaign.countries } }
       : {}),
@@ -707,47 +895,58 @@ async function sendCampaign(id: string) {
     });
   }
 
-  const sender = fcmSender(serviceAccount);
-  let cursor = campaign.cursor;
-  for (;;) {
-    const phones = await db.pushDevice.findMany({
-      where: { ...audience, ...(cursor ? { id: { gt: cursor } } : {}) },
-      orderBy: { id: "asc" },
-      take: PAGE,
-      select: { id: true, token: true },
-    });
-    if (phones.length === 0) break;
-    let stop: string | null = null;
-    const outcomes = await eachAtOnce(phones, AT_ONCE, async (phone) => {
-      if (stop) return null;
-      const outcome = await sender.deliver(phone.token, message);
-      if (typeof outcome === "object") stop = outcome.stop;
-      return outcome;
-    });
-    const gone = phones
-      .filter((_, index) => outcomes[index] === "gone")
-      .map((phone) => phone.id);
-    if (gone.length > 0) {
-      await db.pushDevice.deleteMany({ where: { id: { in: gone } } });
+  const stopped: Partial<Record<Platform, string>> = {};
+  try {
+    let cursor = campaign.cursor;
+    for (;;) {
+      const phones = await db.pushDevice.findMany({
+        where: { ...audience, ...(cursor ? { id: { gt: cursor } } : {}) },
+        orderBy: { id: "asc" },
+        take: PAGE,
+        select: { id: true, token: true, platform: true },
+      });
+      if (phones.length === 0) break;
+      const outcomes = await eachAtOnce(phones, AT_ONCE, async (phone) => {
+        const platform = phone.platform as Platform;
+        const sender = senders[platform];
+        // Phones of a platform whose key stopped working aren't reached.
+        if (!sender || stopped[platform]) return "failed";
+        const outcome = await sender.deliver(phone.token, message);
+        if (typeof outcome !== "object") return outcome;
+        stopped[platform] ??= outcome.stop;
+        return "failed";
+      });
+      const gone = phones
+        .filter((_, index) => outcomes[index] === "gone")
+        .map((phone) => phone.id);
+      if (gone.length > 0) {
+        await db.pushDevice.deleteMany({ where: { id: { in: gone } } });
+      }
+      const count = (outcome: Outcome) =>
+        outcomes.filter((result) => result === outcome).length;
+      cursor = phones[phones.length - 1]!.id;
+      await db.pushCampaign.update({
+        where: { id },
+        data: {
+          cursor,
+          sent: { increment: count("sent") },
+          // Phones Google or Apple no longer knows count as not reached.
+          failed: { increment: count("failed") + gone.length },
+        },
+      });
+      if (platforms.every((platform) => stopped[platform])) {
+        await finish(id, "failed", notSent(stopped));
+        return;
+      }
     }
-    const count = (outcome: Outcome) =>
-      outcomes.filter((result) => result === outcome).length;
-    cursor = phones[phones.length - 1]!.id;
-    await db.pushCampaign.update({
-      where: { id },
-      data: {
-        cursor,
-        sent: { increment: count("sent") },
-        // Phones Google no longer knows count as not reached.
-        failed: { increment: count("failed") + gone.length },
-      },
-    });
-    if (stop) {
-      await finish(id, "failed", stop);
-      return;
-    }
+  } finally {
+    for (const sender of Object.values(senders)) sender.close();
   }
-  await finish(id, "sent", null);
+  await finish(
+    id,
+    "sent",
+    Object.keys(stopped).length > 0 ? notSent(stopped) : null,
+  );
 }
 
 // Sends what's due: scheduled campaigns whose time has come, and any a restart cut off.

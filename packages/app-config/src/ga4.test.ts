@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   checkGoogleServices,
+  checkGoogleServicesPlist,
   ga4AddToCart,
   ga4BeginCheckout,
   ga4Purchase,
@@ -116,5 +117,58 @@ describe("the merchant's google-services.json", () => {
       ok: false,
       problem: "not-google-services",
     });
+  });
+});
+
+describe("the merchant's GoogleService-Info.plist", () => {
+  const plist = (bundleId: string) => `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>API_KEY</key>
+  <string>test-key</string>
+  <key>GCM_SENDER_ID</key>
+  <string>766964973231</string>
+  <key>PLIST_VERSION</key>
+  <string>1</string>
+  <key>BUNDLE_ID</key>
+  <string>${bundleId}</string>
+  <key>PROJECT_ID</key>
+  <string>appsy-db2bc</string>
+  <key>IS_ANALYTICS_ENABLED</key>
+  <false></false>
+  <key>GOOGLE_APP_ID</key>
+  <string>1:766964973231:ios:abc123</string>
+</dict>
+</plist>`;
+
+  it("reads the project and app for the App ID", () => {
+    expect(checkGoogleServicesPlist(plist("com.localnoodle.app"), "com.localnoodle.app")).toEqual({
+      ok: true,
+      app: {
+        projectId: "appsy-db2bc",
+        projectNumber: "766964973231",
+        firebaseAppId: "1:766964973231:ios:abc123",
+        bundleId: "com.localnoodle.app",
+      },
+    });
+  });
+
+  it("says which app it's for when it isn't the App ID, matching case exactly", () => {
+    expect(checkGoogleServicesPlist(plist("com.LocalNoodle.app"), "com.localnoodle.app")).toEqual({
+      ok: false,
+      problem: "other-app",
+      bundleId: "com.LocalNoodle.app",
+    });
+  });
+
+  it("refuses files that aren't Firebase's", () => {
+    expect(checkGoogleServicesPlist("{}", "com.localnoodle.app")).toEqual({
+      ok: false,
+      problem: "not-plist",
+    });
+    expect(
+      checkGoogleServicesPlist('<plist version="1.0"><dict></dict></plist>', "com.localnoodle.app"),
+    ).toEqual({ ok: false, problem: "not-plist" });
   });
 });

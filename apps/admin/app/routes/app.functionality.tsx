@@ -55,17 +55,25 @@ import {
 } from "../models/size-charts.server";
 import {
   loadFirebase,
+  loadFirebaseIos,
   removeFirebase,
+  removeFirebaseIos,
   saveFirebase,
+  saveFirebaseIos,
   type FirebaseConnection,
+  type FirebaseIosConnection,
 } from "../models/google-analytics.server";
 import {
   cancelScheduled,
+  connectApnsKey,
   connectPushKey,
-  loadPushKey,
+  loadPushKeys,
+  removeApnsKey,
   removePushKey,
-  type PushKeyStatus,
+  type AppleKeyStatus,
+  type PushKeys,
 } from "../models/push.server";
+import { storeAccountsSchema } from "../models/store-accounts";
 
 // Functionality: what the merchant's app can do for shoppers. Each switch takes effect in
 // the app at once, apart from the design they edit and publish in the editor.
@@ -74,7 +82,8 @@ import {
 // code start for app-only discount codes and keeps them on; "sizeChartSettings" says which
 // products use which size chart; "deleteSizeChart" deletes one and forgets it;
 // "pushSettings" holds the bag reminder. The file changes keep or remove the merchant's
-// google-services.json and Firebase key, not the design.
+// Firebase files (google-services.json, GoogleService-Info.plist) and push notification
+// keys (Firebase, APNs), not the design.
 const SETTINGS = [
   "appCodes",
   "sizeCharts",
@@ -88,21 +97,33 @@ const SETTINGS = [
   "pushSettings",
   "uploadGoogleServices",
   "removeGoogleServices",
+  "uploadGoogleServicesIos",
+  "removeGoogleServicesIos",
   "uploadPushKey",
   "removePushKey",
+  "uploadApnsKey",
+  "removeApnsKey",
 ] as const;
 
 type SettingName = (typeof SETTINGS)[number];
 type FileChange =
   | "uploadGoogleServices"
   | "removeGoogleServices"
+  | "uploadGoogleServicesIos"
+  | "removeGoogleServicesIos"
   | "uploadPushKey"
-  | "removePushKey";
+  | "removePushKey"
+  | "uploadApnsKey"
+  | "removeApnsKey";
 const FILE_CHANGES: readonly string[] = [
   "uploadGoogleServices",
   "removeGoogleServices",
+  "uploadGoogleServicesIos",
+  "removeGoogleServicesIos",
   "uploadPushKey",
   "removePushKey",
+  "uploadApnsKey",
+  "removeApnsKey",
 ];
 
 const MARKETS_QUERY = `#graphql
@@ -163,13 +184,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     : [null, {}];
   const googleAnalytics = design.features[GA4_FEATURE]?.enabled === true;
   const pushNotifications = pushOn(design);
-  // Google Analytics and push notifications share the app's Firebase project.
-  const [firebase, pushKey] = await Promise.all([
+  // Google Analytics and Android push notifications share the app's Firebase project.
+  const [firebase, firebaseIos, pushKeys] = await Promise.all([
     googleAnalytics || pushNotifications
       ? loadFirebase(shop.appProject.id)
       : null,
-    pushNotifications ? loadPushKey(shop.appProject.id) : null,
+    googleAnalytics ? loadFirebaseIos(shop.appProject.id) : null,
+    pushNotifications ? loadPushKeys(shop.appProject.id) : null,
   ]);
+  // An APNs key belongs to the Apple team of the store's App Store account.
+  const accounts = storeAccountsSchema.safeParse(
+    shop.appProject.storeAccounts ?? {},
+  );
   return {
     codeStart,
     discountsAccess,
@@ -180,9 +206,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     ruleTitles,
     googleAnalytics,
     firebase,
+    firebaseIos,
     pushNotifications,
     pushSettings: savedPushSettings(design),
-    pushKey,
+    pushKeys,
+    appleTeamId: (accounts.success && accounts.data.apple?.teamId) || null,
     appId: shop.appProject.androidPackage,
     currencyConversion: design.markets.displayCurrencyConversion,
     wishlist: design.features.wishlist?.enabled === true,
@@ -290,8 +318,8 @@ export const action = async ({
       on,
     };
   }
-  // The merchant's Firebase file, kept on the app and reaching phones with the next build,
-  // and their Firebase key, kept in the vault for sending push notifications.
+  // The merchant's Firebase files, kept on the app and reaching phones with the next build,
+  // and their push notification keys, kept in the vault for sending campaigns.
   if (FILE_CHANGES.includes(setting)) {
     let problems: string[] = [];
     switch (setting as FileChange) {
@@ -305,11 +333,31 @@ export const action = async ({
       case "removeGoogleServices":
         await removeFirebase(shop.appProject.id);
         break;
+      case "uploadGoogleServicesIos":
+        problems = await saveFirebaseIos(
+          shop.appProject.id,
+          shop.appProject.iosBundleId,
+          value,
+        );
+        break;
+      case "removeGoogleServicesIos":
+        await removeFirebaseIos(shop.appProject.id);
+        break;
       case "uploadPushKey":
         problems = await connectPushKey(shop.appProject.id, value);
         break;
       case "removePushKey":
         await removePushKey(shop.appProject.id);
+        break;
+      case "uploadApnsKey":
+        problems = await connectApnsKey(
+          shop.appProject.id,
+          String(form.get("keyId") ?? ""),
+          value,
+        );
+        break;
+      case "removeApnsKey":
+        await removeApnsKey(shop.appProject.id);
         break;
     }
     return {
@@ -357,9 +405,11 @@ export default function Functionality() {
     ruleTitles,
     googleAnalytics,
     firebase,
+    firebaseIos,
     pushNotifications,
     pushSettings: savedPush,
-    pushKey,
+    pushKeys,
+    appleTeamId,
     appId,
     currencyConversion,
     wishlist,
@@ -411,7 +461,11 @@ export default function Functionality() {
           checked={googleAnalytics}
         >
           {googleAnalytics && (
-            <GoogleAnalytics appId={appId} connection={firebase} />
+            <GoogleAnalytics
+              appId={appId}
+              connection={firebase}
+              iosConnection={firebaseIos}
+            />
           )}
         </SettingSwitch>
       </s-section>
@@ -427,7 +481,8 @@ export default function Functionality() {
             <PushNotifications
               appId={appId}
               firebase={firebase}
-              pushKey={pushKey}
+              keys={pushKeys ?? { firebase: null, apple: null }}
+              appleTeamId={appleTeamId}
               settings={savedPush}
               googleAnalytics={googleAnalytics}
             />
@@ -720,17 +775,30 @@ function AppCodes({
   );
 }
 
-// The merchant's GA4, through a Firebase project made from it (doc 03, section J2). Google:
-// adding an Android app stream to a GA4 property "creates a Firebase project and links it
-// to the property" (https://support.google.com/analytics/answer/9304153). The file is
-// checked against the App ID (models/google-analytics.server.ts) and reaches phones with
-// the app's next build.
+const GA_NOTICES: Partial<Record<string, string>> = {
+  uploadGoogleServices:
+    "Firebase file saved. Your Android app's next build includes it.",
+  removeGoogleServices:
+    "Firebase file removed. Your Android app stops sending to Google Analytics with its next build.",
+  uploadGoogleServicesIos:
+    "Firebase file saved. Your iPhone app's next build includes it.",
+  removeGoogleServicesIos:
+    "Firebase file removed. Your iPhone app stops sending to Google Analytics with its next build.",
+};
+
+// The merchant's GA4, through a Firebase project made from it (doc 03, section J2), with a
+// Firebase file per platform. Google: adding an app stream to a GA4 property creates a
+// Firebase project linked to the property (https://support.google.com/analytics/answer/9304153).
+// Each file is checked against the App ID (models/google-analytics.server.ts) and reaches
+// phones with the app's next build for its platform.
 function GoogleAnalytics({
   appId,
   connection,
+  iosConnection,
 }: {
   appId: string | null;
   connection: FirebaseConnection | null;
+  iosConnection: FirebaseIosConnection | null;
 }) {
   const shopify = useAppBridge();
   const fetcher = useFetcher<typeof action>();
@@ -739,20 +807,14 @@ function GoogleAnalytics({
 
   useEffect(() => {
     if (!result || result.issues.length > 0) return;
-    shopify.toast.show(
-      result.setting === "removeGoogleServices"
-        ? "Firebase file removed. Your app stops sending to Google Analytics with its next build."
-        : "Firebase file saved. Your app's next build includes it.",
-    );
+    const notice = GA_NOTICES[result.setting];
+    if (notice) shopify.toast.show(notice);
   }, [result, shopify]);
 
   if (!appId) return <AppIdFirst />;
 
-  const upload = (text: string) =>
-    fetcher.submit(
-      { setting: "uploadGoogleServices", value: text },
-      { method: "POST" },
-    );
+  const submit = (setting: FileChange, value = "") =>
+    fetcher.submit({ setting, value }, { method: "POST" });
 
   return (
     <s-stack gap="base">
@@ -764,13 +826,14 @@ function GoogleAnalytics({
         </s-banner>
       )}
 
+      <s-heading>Android</s-heading>
       {connection ? (
         <s-stack gap="small">
           <s-paragraph>
             Connected to the Firebase project{" "}
             <s-text type="strong">{connection.projectId}</s-text>, app{" "}
             <s-text type="strong">{connection.packageName}</s-text>. Your
-            app&apos;s next build includes it.
+            Android app&apos;s next build includes it.
           </s-paragraph>
           {connection.packageName !== appId && (
             <s-banner tone="warning">
@@ -783,12 +846,7 @@ function GoogleAnalytics({
               variant="tertiary"
               tone="critical"
               disabled={busy || undefined}
-              onClick={() =>
-                fetcher.submit(
-                  { setting: "removeGoogleServices", value: "" },
-                  { method: "POST" },
-                )
-              }
+              onClick={() => submit("removeGoogleServices")}
             >
               Remove file
             </s-button>
@@ -812,21 +870,81 @@ function GoogleAnalytics({
           <s-list-item>Upload it below.</s-list-item>
         </s-ordered-list>
       )}
-
       <GoogleServicesDrop
         replace={connection !== null}
         disabled={busy}
-        onText={upload}
+        onText={(text) => submit("uploadGoogleServices", text)}
+      />
+
+      <s-heading>iPhone</s-heading>
+      {iosConnection ? (
+        <s-stack gap="small">
+          <s-paragraph>
+            Connected to the Firebase project{" "}
+            <s-text type="strong">{iosConnection.projectId}</s-text>, app{" "}
+            <s-text type="strong">{iosConnection.bundleId}</s-text>. Your iPhone
+            app&apos;s next build includes it.
+          </s-paragraph>
+          {iosConnection.bundleId !== appId && (
+            <s-banner tone="warning">
+              This file is for {iosConnection.bundleId}, but your App ID is now{" "}
+              {appId}. Upload the file for {appId}.
+            </s-banner>
+          )}
+          {connection && connection.projectId !== iosConnection.projectId && (
+            <s-banner tone="warning">
+              Your Android and iPhone files are for different Firebase projects
+              ({connection.projectId} and {iosConnection.projectId}), so their
+              events may go to different Google Analytics properties. Add both
+              apps as streams of the same property.
+            </s-banner>
+          )}
+          <s-stack direction="inline">
+            <s-button
+              variant="tertiary"
+              tone="critical"
+              disabled={busy || undefined}
+              onClick={() => submit("removeGoogleServicesIos")}
+            >
+              Remove file
+            </s-button>
+          </s-stack>
+        </s-stack>
+      ) : (
+        <s-ordered-list>
+          <s-list-item>
+            In Google Analytics, open Admin, then Data streams, and add a
+            stream: choose iOS app.
+          </s-list-item>
+          <s-list-item>
+            Enter {appId} as the bundle ID and your app&apos;s name, then
+            register the app. If Google asks for an App Store ID before your app
+            is in the App Store, Firebase lets you add it later, under Project
+            settings.
+          </s-list-item>
+          <s-list-item>
+            Download GoogleService-Info.plist when Google offers it. You can
+            also find it later in Firebase, under Project settings, in Your
+            apps.
+          </s-list-item>
+          <s-list-item>Upload it below.</s-list-item>
+        </s-ordered-list>
+      )}
+      <GoogleServicesPlistDrop
+        replace={iosConnection !== null}
+        disabled={busy}
+        onText={(text) => submit("uploadGoogleServicesIos", text)}
       />
 
       <s-paragraph color="subdued">
         Your app sends Google Analytics its product views, collection views, add
-        to bag, wishlist saves and checkouts started, as Google&apos;s
+        to bag, wishlist saves, checkouts started and orders, as Google&apos;s
         recommended shopping events, only after the shopper allows usage data.
-        It doesn&apos;t send search words or the phone&apos;s advertising ID.
-        Your privacy text and Google Play answers on the Publishing page now
-        mention Google Analytics. If you turn on Google signals or link Google
-        Ads in Google Analytics, Google says your answers may change.
+        It doesn&apos;t send search words, the phone&apos;s advertising ID or,
+        on iPhones, Apple&apos;s vendor ID. Your privacy text, Google Play
+        answers and App Store answers on the Publishing page now mention Google
+        Analytics. If you turn on Google signals or link Google Ads in Google
+        Analytics, Google says your answers may change.
       </s-paragraph>
     </s-stack>
   );
@@ -836,8 +954,8 @@ function AppIdFirst() {
   return (
     <s-banner tone="info" heading="Choose your App ID first">
       <s-paragraph>
-        Your Firebase Android app uses your App ID as its package name. Choose
-        it under Store accounts on the{" "}
+        Your apps use your App ID, as the Android package name and the iPhone
+        bundle ID. Choose it under Store accounts on the{" "}
         <s-link href="/app/publishing">Publishing page</s-link>, then come back
         here.
       </s-paragraph>
@@ -845,25 +963,27 @@ function AppIdFirst() {
   );
 }
 
-// A JSON file the merchant downloaded from Google, read in the browser and sent as text.
-function JsonFileDrop({
+// A file the merchant downloaded from Google or Apple, read in the browser and sent as text.
+function TextFileDrop({
   label,
+  accept,
   maxBytes,
   tooLarge,
   disabled,
-  onText,
+  onFile,
 }: {
   label: string;
+  accept: string;
   maxBytes: number;
   tooLarge: string;
   disabled: boolean;
-  onText: (text: string) => void;
+  onFile: (text: string, name: string) => void;
 }) {
   const [problem, setProblem] = useState<string>();
   return (
     <s-drop-zone
       label={label}
-      accept=".json,application/json"
+      accept={accept}
       error={problem}
       disabled={disabled || undefined}
       onChange={(event) => {
@@ -874,7 +994,7 @@ function JsonFileDrop({
           setProblem(tooLarge);
           return;
         }
-        void file.text().then(onText);
+        void file.text().then((text) => onFile(text, file.name));
       }}
     />
   );
@@ -890,38 +1010,69 @@ function GoogleServicesDrop({
   onText: (text: string) => void;
 }) {
   return (
-    <JsonFileDrop
+    <TextFileDrop
       label={replace ? "Replace google-services.json" : "google-services.json"}
+      accept=".json,application/json"
       maxBytes={100_000}
       tooLarge="This file is too large to be a google-services.json."
       disabled={disabled}
-      onText={onText}
+      onFile={onText}
+    />
+  );
+}
+
+function GoogleServicesPlistDrop({
+  replace,
+  disabled,
+  onText,
+}: {
+  replace: boolean;
+  disabled: boolean;
+  onText: (text: string) => void;
+}) {
+  return (
+    <TextFileDrop
+      label={
+        replace
+          ? "Replace GoogleService-Info.plist"
+          : "GoogleService-Info.plist"
+      }
+      accept=".plist"
+      maxBytes={100_000}
+      tooLarge="This file is too large to be a GoogleService-Info.plist."
+      disabled={disabled}
+      onFile={onText}
     />
   );
 }
 
 const FILE_NOTICES: Partial<Record<string, string>> = {
   uploadGoogleServices:
-    "Firebase file saved. Your app's next build includes it.",
+    "Firebase file saved. Your Android app's next build includes it.",
   removeGoogleServices: "Firebase file removed",
   uploadPushKey: "Firebase key connected",
   removePushKey: "Firebase key removed",
+  uploadApnsKey: "APNs key connected",
+  removeApnsKey: "APNs key removed",
 };
 
-// Push notifications (app-config push.ts; doc 03, section I): the app's Firebase project
-// (the google-services.json Google Analytics also uses), the Firebase key Appsy sends
-// campaigns with (models/push.server.ts, kept in the vault), and the bag reminder, which each
-// phone schedules itself.
+// Push notifications (app-config push.ts; doc 03, section I): for Android phones, the app's
+// Firebase project (the google-services.json Google Analytics also uses) and the Firebase key
+// Appsy sends with; for iPhones, the APNs key from the merchant's Apple Developer account
+// (models/push.server.ts and apns.server.ts, keys kept in the vault); and the bag reminder,
+// which each phone schedules itself.
 function PushNotifications({
   appId,
   firebase,
-  pushKey,
+  keys,
+  appleTeamId,
   settings,
   googleAnalytics,
 }: {
   appId: string | null;
   firebase: FirebaseConnection | null;
-  pushKey: PushKeyStatus | null;
+  keys: PushKeys;
+  appleTeamId: string | null;
   settings: PushSettings;
   googleAnalytics: boolean;
 }) {
@@ -929,6 +1080,7 @@ function PushNotifications({
   const fetcher = useFetcher<typeof action>();
   const busy = fetcher.state !== "idle";
   const result = busy ? undefined : fetcher.data;
+  const pushKey = keys.firebase;
 
   useEffect(() => {
     if (!result || result.issues.length > 0) return;
@@ -938,20 +1090,23 @@ function PushNotifications({
 
   if (!appId) return <AppIdFirst />;
 
-  const submit = (setting: FileChange, value = "") =>
-    fetcher.submit({ setting, value }, { method: "POST" });
+  const submit = (
+    setting: FileChange,
+    value = "",
+    fields: Record<string, string> = {},
+  ) => fetcher.submit({ setting, value, ...fields }, { method: "POST" });
 
   return (
     <s-stack gap="base">
       {result && result.issues.length > 0 && (
-        <s-banner tone="critical" heading="That file wasn't saved">
+        <s-banner tone="critical" heading="That wasn't saved">
           {result.issues.map((issue) => (
             <s-paragraph key={issue.message}>{issue.message}</s-paragraph>
           ))}
         </s-banner>
       )}
 
-      <s-heading>Your app&apos;s Firebase project</s-heading>
+      <s-heading>Android: your app&apos;s Firebase project</s-heading>
       {firebase ? (
         <s-paragraph>
           Your app uses the Firebase project{" "}
@@ -1003,11 +1158,11 @@ function PushNotifications({
         </s-stack>
       )}
 
-      <s-heading>Your Firebase key</s-heading>
+      <s-heading>Android: your Firebase key</s-heading>
       {pushKey ? (
         <s-stack gap="small">
           <s-paragraph>
-            Connected. Appsy sends your notifications as{" "}
+            Connected. Appsy sends your notifications to Android phones as{" "}
             <s-text type="strong">{pushKey.clientEmail}</s-text>.
           </s-paragraph>
           {firebase && pushKey.projectId !== firebase.projectId && (
@@ -1017,10 +1172,7 @@ function PushNotifications({
               {firebase.projectId}.
             </s-banner>
           )}
-          <s-stack direction="inline" gap="small">
-            <s-button variant="primary" href="/app/push">
-              Send a notification
-            </s-button>
+          <s-stack direction="inline">
             <s-button
               variant="tertiary"
               tone="critical"
@@ -1045,13 +1197,35 @@ function PushNotifications({
           </s-list-item>
         </s-ordered-list>
       )}
-      <JsonFileDrop
+      <TextFileDrop
         label={pushKey ? "Replace Firebase key" : "Firebase key (.json)"}
+        accept=".json,application/json"
         maxBytes={20_000}
         tooLarge="This file is too large to be a Firebase key."
         disabled={busy || !firebase}
-        onText={(text) => submit("uploadPushKey", text)}
+        onFile={(text) => submit("uploadPushKey", text)}
       />
+
+      <s-divider />
+      <s-heading>iPhone: your APNs key</s-heading>
+      <ApnsKey
+        // A new key empties the form.
+        key={keys.apple?.checkedAt ?? "none"}
+        appId={appId}
+        appleTeamId={appleTeamId}
+        status={keys.apple}
+        busy={busy}
+        onConnect={(keyId, text) => submit("uploadApnsKey", text, { keyId })}
+        onRemove={() => submit("removeApnsKey")}
+      />
+
+      {(keys.firebase || keys.apple) && (
+        <s-stack direction="inline">
+          <s-button variant="primary" href="/app/push">
+            Send a notification
+          </s-button>
+        </s-stack>
+      )}
 
       <s-divider />
       <BagReminder settings={settings} />
@@ -1059,10 +1233,127 @@ function PushNotifications({
       <s-paragraph color="subdued">
         Your app asks shoppers the first time they add something to their bag,
         and they can turn notifications off under Privacy choices. Notifications
-        reach Android phones once they have your app&apos;s next build; iPhones
-        follow with iPhone builds. Your privacy text and Google Play answers on
-        the Publishing page now mention notifications.
+        reach phones once they have your app&apos;s next build, and pictures
+        show on Android phones only. Your privacy text, Google Play answers and
+        App Store answers on the Publishing page now mention notifications.
       </s-paragraph>
+    </s-stack>
+  );
+}
+
+// The APNs key Appsy sends iPhone notifications with, made in the merchant's Apple Developer
+// account (Apple: https://developer.apple.com/help/account/keys/create-a-private-key/ and
+// https://developer.apple.com/help/account/keys/get-a-key-identifier/), and checked with
+// Apple before it's kept (models/push.server.ts). It belongs to the Apple team of their App
+// Store account.
+function ApnsKey({
+  appId,
+  appleTeamId,
+  status,
+  busy,
+  onConnect,
+  onRemove,
+}: {
+  appId: string;
+  appleTeamId: string | null;
+  status: AppleKeyStatus | null;
+  busy: boolean;
+  onConnect: (keyId: string, text: string) => void;
+  onRemove: () => void;
+}) {
+  const [keyId, setKeyId] = useState("");
+  const [file, setFile] = useState<{ text: string; name: string } | null>(null);
+
+  if (!appleTeamId) {
+    return (
+      <s-banner tone="info" heading="Connect your App Store account first">
+        <s-paragraph>
+          The APNs key comes from the same Apple Developer account. Connect it
+          under Store accounts on the{" "}
+          <s-link href="/app/publishing">Publishing page</s-link>, then come
+          back here.
+        </s-paragraph>
+      </s-banner>
+    );
+  }
+
+  return (
+    <s-stack gap="base">
+      {status ? (
+        <s-stack gap="small">
+          <s-paragraph>
+            Connected. Appsy sends your notifications to iPhones with the key{" "}
+            <s-text type="strong">{status.keyId}</s-text>, from your Apple team{" "}
+            {status.teamId}.
+          </s-paragraph>
+          {status.teamId !== appleTeamId && (
+            <s-banner tone="warning">
+              This key is from the Apple team {status.teamId}, but your App
+              Store account is now team {appleTeamId}. Upload a key from{" "}
+              {appleTeamId}.
+            </s-banner>
+          )}
+          <s-stack direction="inline">
+            <s-button
+              variant="tertiary"
+              tone="critical"
+              disabled={busy || undefined}
+              onClick={onRemove}
+            >
+              Remove key
+            </s-button>
+          </s-stack>
+        </s-stack>
+      ) : (
+        <s-ordered-list>
+          <s-list-item>
+            In your Apple Developer account, open Certificates, Identifiers
+            &amp; Profiles, choose Keys in the sidebar, then the add button (+).
+            This needs the Account Holder or Admin role.
+          </s-list-item>
+          <s-list-item>
+            Name the key and select Apple Push Notification service. In its
+            configuration, choose an environment that includes production, and
+            Team Scoped as the key type (or Topic Specific, with {appId} as its
+            topic).
+          </s-list-item>
+          <s-list-item>
+            Review the key, confirm it, then download it. Apple doesn&apos;t
+            keep a copy, so you can download the .p8 file only once. Keep it
+            safe: it lets whoever has it send notifications as your app.
+          </s-list-item>
+          <s-list-item>
+            Enter the key&apos;s Key ID, shown below its name under Keys, and
+            upload the .p8 file below. Appsy checks it with Apple and keeps it
+            encrypted.
+          </s-list-item>
+        </s-ordered-list>
+      )}
+      <s-text-field
+        label="Key ID"
+        placeholder="2X9R4HXF34"
+        maxLength={10}
+        value={keyId}
+        disabled={busy || undefined}
+        onInput={(event) => setKeyId(event.currentTarget.value)}
+      />
+      <TextFileDrop
+        label={status ? "Replace APNs key (.p8)" : "APNs key (.p8)"}
+        accept=".p8"
+        maxBytes={20_000}
+        tooLarge="This file is too large to be an APNs key (.p8)."
+        disabled={busy}
+        onFile={(text, name) => setFile({ text, name })}
+      />
+      {file && <s-text color="subdued">Chosen: {file.name}</s-text>}
+      <s-stack direction="inline">
+        <s-button
+          disabled={busy || keyId.trim() === "" || !file || undefined}
+          onClick={() => file && onConnect(keyId, file.text)}
+        >
+          {status ? "Replace key" : "Connect key"}
+        </s-button>
+      </s-stack>
     </s-stack>
   );
 }
@@ -1133,7 +1424,7 @@ function BagReminder({ settings }: { settings: PushSettings }) {
       <s-heading>Bag reminder</s-heading>
       <s-checkbox
         label="Remind shoppers about items left in their bag"
-        details="Once, when their bag hasn't changed for the hours below. Each phone sets its own reminder, so shoppers' bags aren't sent to Appsy, and it doesn't need the Firebase key."
+        details="Once, when their bag hasn't changed for the hours below. Each phone sets its own reminder, so shoppers' bags aren't sent to Appsy, and it works without your keys."
         checked={draft.enabled || undefined}
         onChange={(event) => update({ enabled: event.currentTarget.checked })}
       />

@@ -1,13 +1,19 @@
 import { useAppBridge } from "@shopify/app-bridge-react";
-import { appPolicyText, dataSafetyItems } from "@appsy/app-config";
+import {
+  appPolicyText,
+  appPrivacyItems,
+  dataSafetyItems,
+} from "@appsy/app-config";
 import type { PrivacyPolicy } from "../models/privacy-policy.server";
 
 // What every store needs from Appsy for its app's privacy, on the Publishing page: the
 // privacy policy link Google and Apple ask for, the section the store adds to that policy,
-// and the answers for Google Play's App content forms. The text and the Data safety
-// answers come from what the app does (packages/app-config/src/privacy.ts), so they're
-// the same for every store and change with the app. Google's rules behind them: the User
-// Data policy, Data safety and App content help pages (checked 2026-10-27).
+// the answers for Google Play's App content forms, and the answers for App Privacy in App
+// Store Connect. The text and the answers come from what the app does
+// (packages/app-config/src/privacy.ts), so they're the same for every store and change with
+// the app. The rules behind them: Google's User Data policy, Data safety and App content
+// help pages (checked 2026-10-27), and Apple's App Privacy Details page and App Store
+// Connect help (checked 2026-11-02).
 
 const GOOGLE_HELP = {
   userData:
@@ -18,12 +24,18 @@ const GOOGLE_HELP = {
     "https://support.google.com/googleplay/android-developer/answer/9859455",
 };
 
+const APPLE_HELP = {
+  privacyDetails: "https://developer.apple.com/app-store/app-privacy-details/",
+  managePrivacy:
+    "https://developer.apple.com/help/app-store-connect/manage-app-information/manage-app-privacy",
+};
+
 type Props = {
   appName: string;
   policy: PrivacyPolicy;
-  // Whether the store's app sends Google Analytics its events, and whether it has push
-  // notifications (Functionality page).
-  googleAnalytics: boolean;
+  // Whether each platform's app sends Google Analytics its events, and whether the app has
+  // push notifications (Functionality page).
+  googleAnalytics: { android: boolean; ios: boolean };
   pushNotifications: boolean;
 };
 
@@ -34,13 +46,22 @@ export function PrivacyForms({
   pushNotifications,
 }: Props) {
   const shopify = useAppBridge();
-  const options = { googleAnalytics, pushNotifications };
-  const text = appPolicyText(appName, options);
-  const items = dataSafetyItems(options);
+  const text = appPolicyText(appName, {
+    googleAnalytics: googleAnalytics.android || googleAnalytics.ios,
+    pushNotifications,
+  });
+  const items = dataSafetyItems({
+    googleAnalytics: googleAnalytics.android,
+    pushNotifications,
+  });
+  const appleItems = appPrivacyItems({
+    googleAnalytics: googleAnalytics.ios,
+    pushNotifications,
+  });
   const providers = [
     "Appsy",
     "Shopify",
-    ...(googleAnalytics ? ["Google Analytics"] : []),
+    ...(googleAnalytics.android ? ["Google Analytics"] : []),
     ...(pushNotifications ? ["Firebase Cloud Messaging"] : []),
   ];
   const handlers = `${providers.slice(0, -1).join(", ")} and ${providers[providers.length - 1]}`;
@@ -60,12 +81,13 @@ export function PrivacyForms({
   };
 
   return (
-    <s-section heading="Privacy and Google Play forms">
+    <s-section heading="Privacy, Google Play and App Store forms">
       <s-stack gap="base">
         <s-paragraph color="subdued">
-          Google asks for these before your app can go beyond internal testing.
-          The answers come from what Appsy&apos;s app does, so you can use them
-          as they are.
+          Google asks for its forms before your app can go beyond internal
+          testing, and Apple for its App Privacy answers before your app is on
+          the App Store. The answers come from what Appsy&apos;s app does, so
+          you can use them as they are.
         </s-paragraph>
 
         <s-heading>1. Your privacy policy link</s-heading>
@@ -74,7 +96,8 @@ export function PrivacyForms({
             <s-paragraph>
               In Play Console, open Policy and programs › App content › Privacy
               policy and paste this link. It&apos;s the policy your app opens
-              from Privacy choices in its menu, and Apple asks for it too.
+              from Privacy choices in its menu. Apple asks for it too, under App
+              Privacy (step 5).
             </s-paragraph>
             <s-grid gridTemplateColumns="1fr auto" gap="small" alignItems="end">
               <s-text-field
@@ -238,6 +261,71 @@ export function PrivacyForms({
           and{" "}
           <s-link href={GOOGLE_HELP.appContent} target="_blank">
             App content
+          </s-link>
+          .
+        </s-paragraph>
+
+        <s-divider />
+
+        <s-heading>5. App Privacy in App Store Connect</s-heading>
+        <s-paragraph>
+          In App Store Connect, open your app, click App Privacy in the sidebar,
+          then Get Started. Choose &quot;Yes, we collect data from this
+          app&quot;, then choose these {appleItems.length} data types and
+          nothing else. For each one, choose the purposes shown and whether
+          it&apos;s linked to the shopper, and answer No to tracking:
+          Appsy&apos;s app doesn&apos;t link shoppers&apos; data with other
+          companies&apos; data for advertising, or share it with data brokers.
+          Then click Publish.
+        </s-paragraph>
+        <s-table>
+          <s-table-header-row>
+            <s-table-header listSlot="primary">Data type</s-table-header>
+            <s-table-header listSlot="secondary">
+              What your app sends
+            </s-table-header>
+            <s-table-header listSlot="labeled">Purposes</s-table-header>
+            <s-table-header listSlot="labeled">
+              Linked to the shopper
+            </s-table-header>
+          </s-table-header-row>
+          <s-table-body>
+            {appleItems.map((item) => (
+              <s-table-row key={`${item.category} › ${item.type}`}>
+                <s-table-cell>
+                  {item.category === item.type
+                    ? item.type
+                    : `${item.category} › ${item.type}`}
+                </s-table-cell>
+                <s-table-cell>{item.what}</s-table-cell>
+                <s-table-cell>{item.purposes.join(", ")}</s-table-cell>
+                <s-table-cell>{item.linked ? "Yes" : "No"}</s-table-cell>
+              </s-table-row>
+            ))}
+          </s-table-body>
+        </s-table>
+        <s-paragraph>
+          If you send offers to shoppers who agree to them at checkout, also
+          choose Developer&apos;s Advertising or Marketing for Email Address,
+          and for Phone Number if you send offers by text. Then, next to Privacy
+          Policy, click Edit and enter your privacy policy link from step 1.
+        </s-paragraph>
+        <s-paragraph color="subdued">
+          Apple counts what your app&apos;s web pages collect too, such as your
+          checkout: if apps or pixels in your checkout collect shoppers&apos;
+          data, add what they collect. If you turn on Google signals or link
+          Google Ads in Google Analytics, Google says your answers may change.
+          Apple lets you update these answers at any time, without a new version
+          of your app.
+        </s-paragraph>
+        <s-paragraph color="subdued">
+          From Apple:{" "}
+          <s-link href={APPLE_HELP.privacyDetails} target="_blank">
+            App Privacy Details
+          </s-link>{" "}
+          and{" "}
+          <s-link href={APPLE_HELP.managePrivacy} target="_blank">
+            Manage app privacy
           </s-link>
           .
         </s-paragraph>

@@ -196,3 +196,45 @@ export function checkGoogleServices(text: string, packageName: string): GoogleSe
     },
   };
 }
+
+// The iPhone app's file, GoogleService-Info.plist: an XML property list naming one app by
+// its bundle ID, which must be the App ID exactly.
+export type FirebaseIosApp = {
+  projectId: string;
+  projectNumber: string;
+  // Firebase's id for the iPhone app, like 1:123:ios:abc.
+  firebaseAppId: string;
+  bundleId: string;
+};
+
+export type GoogleServicesPlistCheck =
+  | { ok: true; app: FirebaseIosApp }
+  | { ok: false; problem: "not-plist" }
+  | { ok: false; problem: "other-app"; bundleId: string };
+
+const XML_ENTITIES: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&apos;": "'",
+};
+
+export function checkGoogleServicesPlist(text: string, bundleId: string): GoogleServicesPlistCheck {
+  if (!/<plist[\s>]/.test(text)) return { ok: false, problem: "not-plist" };
+  const values = new Map<string, string>();
+  for (const [, key, value] of text.matchAll(/<key>([^<]+)<\/key>\s*<string>([^<]*)<\/string>/g)) {
+    if (key && value !== undefined) {
+      values.set(key, value.replace(/&(?:amp|lt|gt|quot|apos);/g, (entity) => XML_ENTITIES[entity] ?? entity));
+    }
+  }
+  const projectId = values.get("PROJECT_ID");
+  const projectNumber = values.get("GCM_SENDER_ID");
+  const firebaseAppId = values.get("GOOGLE_APP_ID");
+  const fileBundleId = values.get("BUNDLE_ID");
+  if (!projectId || !projectNumber || !firebaseAppId || !fileBundleId) {
+    return { ok: false, problem: "not-plist" };
+  }
+  if (fileBundleId !== bundleId) return { ok: false, problem: "other-app", bundleId: fileBundleId };
+  return { ok: true, app: { projectId, projectNumber, firebaseAppId, bundleId } };
+}

@@ -39,7 +39,13 @@ export function appleToken(apple: AppleKey) {
   );
 }
 
-async function appleApi(token: string, path: string, init: RequestInit = {}) {
+// One App Store Connect API call; null when Apple didn't answer. iPhone signing uses it too
+// (ios-signing.server.ts).
+export async function appleApi(
+  token: string,
+  path: string,
+  init: RequestInit = {},
+) {
   return fetch(`${APPLE_API}${path}`, {
     ...init,
     headers: {
@@ -134,17 +140,24 @@ export async function checkBundle(apple: AppleKey, appId: string) {
 
 // Whether the App ID is registered as a bundle ID in the merchant's Apple team.
 async function findBundle(token: string, appId: string) {
+  return (await bundleResourceId(token, appId)) !== null;
+}
+
+// The Apple ID of the App ID's bundle ID record in the merchant's Apple team, or null.
+export async function bundleResourceId(token: string, appId: string) {
   const query = new URLSearchParams({
     "filter[identifier]": appId,
     limit: "200",
   });
   const response = await appleApi(token, `/v1/bundleIds?${query}`);
-  if (!response?.ok) return false;
+  if (!response?.ok) return null;
   const body = (await response.json()) as {
-    data?: { attributes?: { identifier?: string } }[];
+    data?: { id?: string; attributes?: { identifier?: string } }[];
   };
-  return (body.data ?? []).some(
-    (bundle) => bundle.attributes?.identifier?.toLowerCase() === appId,
+  return (
+    (body.data ?? []).find(
+      (bundle) => bundle.attributes?.identifier?.toLowerCase() === appId,
+    )?.id ?? null
   );
 }
 
@@ -308,7 +321,8 @@ export async function testGoogle(
 
 // --- Both ----------------------------------------------------------------------------
 
-function jwt(
+// A signed JSON Web Token. Apple's push service takes one too (apns.server.ts).
+export function jwt(
   header: Record<string, unknown>,
   payload: Record<string, unknown>,
   key: KeyObject,

@@ -350,6 +350,8 @@ export async function disconnect(
   const project = await loadProject(appProjectId);
   const keys: StoreKeys = { ...(await getStoreKeys(appProjectId)) };
   delete keys[platform];
+  // Signing files made with this Apple account are no use with another one.
+  if (platform === "apple") delete keys.iosSigning;
   // The push notifications key shares the secret, so it can outlive both store keys.
   const credentialsRef = await keepStoreKeys(appProjectId, keys);
   const accounts: StoreAccounts = { ...project.accounts };

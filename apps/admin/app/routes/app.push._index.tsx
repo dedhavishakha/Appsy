@@ -15,15 +15,15 @@ import { loadDesign } from "../models/design.server";
 import {
   cancelCampaign,
   loadCampaigns,
-  loadPushKey,
+  loadPushKeys,
   type CampaignRow,
   type CampaignStatus,
 } from "../models/push.server";
 
 // Push notifications: the campaigns the merchant sent or scheduled, how many phones each
 // reached, and how many shoppers opened the app from it (models/push.server.ts). New ones
-// are written on app.push.new.tsx; the switch, the Firebase key and the bag reminder are on
-// the Functionality page.
+// are written on app.push.new.tsx; the switch, the keys (Firebase for Android phones, APNs
+// for iPhones) and the bag reminder are on the Functionality page.
 
 // While a campaign is going out, the page looks again this often.
 const REFRESH_MS = 10_000;
@@ -32,12 +32,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const shop = await ensureShopSetup(admin, session.shop);
   const appProjectId = shop.appProject.id;
-  const [design, key, list] = await Promise.all([
+  const [design, keys, list] = await Promise.all([
     loadDesign(appProjectId),
-    loadPushKey(appProjectId),
+    loadPushKeys(appProjectId),
     loadCampaigns(appProjectId),
   ]);
-  return { on: pushOn(design), ready: key !== null, ...list };
+  return {
+    on: pushOn(design),
+    keys: { android: keys.firebase !== null, ios: keys.apple !== null },
+    ...list,
+  };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -66,9 +70,14 @@ const STATUS: Record<
   canceled: { label: "Canceled", tone: "neutral" },
 };
 
+// "1 iPhone", "2 Android phones".
+const count = (number: number, one: string) =>
+  `${number.toLocaleString("en")} ${one}${number === 1 ? "" : "s"}`;
+
 export default function PushNotificationsPage() {
-  const { on, ready, campaigns, phones } = useLoaderData<typeof loader>();
+  const { on, keys, campaigns, phones } = useLoaderData<typeof loader>();
   const { revalidate } = useRevalidator();
+  const ready = keys.android || keys.ios;
   const sending = campaigns.some((campaign) => campaign.status === "sending");
 
   useEffect(() => {
@@ -90,15 +99,16 @@ export default function PushNotificationsPage() {
           <s-paragraph>
             Turn them on under Push notifications on the{" "}
             <s-link href="/app/functionality">Functionality page</s-link>, and
-            connect your Firebase project there.
+            connect your keys there.
           </s-paragraph>
         </s-banner>
       ) : (
         !ready && (
-          <s-banner tone="info" heading="Connect your Firebase key first">
+          <s-banner tone="info" heading="Connect a key first">
             <s-paragraph>
-              Appsy sends notifications through your own Firebase project. Add
-              its key under Push notifications on the{" "}
+              Appsy sends notifications with your own keys: your Firebase key
+              for Android phones and your APNs key for iPhones. Add them under
+              Push notifications on the{" "}
               <s-link href="/app/functionality">Functionality page</s-link>.
             </s-paragraph>
           </s-banner>
@@ -108,11 +118,16 @@ export default function PushNotificationsPage() {
       <s-section heading="Your notifications">
         <s-stack gap="base">
           <s-paragraph color="subdued">
-            {phones === 1
-              ? "1 phone can get your notifications."
-              : `${phones.toLocaleString("en")} phones can get your notifications.`}{" "}
-            Shoppers allow them in your app, the first time they add something
-            to their bag.
+            {count(phones.android, "Android phone")} and{" "}
+            {count(phones.ios, "iPhone")} can get your notifications. Shoppers
+            allow them in your app, the first time they add something to their
+            bag.
+            {ready && !keys.android && phones.android > 0
+              ? " Android phones get them once you connect your Firebase key."
+              : ""}
+            {ready && !keys.ios && phones.ios > 0
+              ? " iPhones get them once you connect your APNs key."
+              : ""}
           </s-paragraph>
           {campaigns.length === 0 ? (
             <s-paragraph color="subdued">No notifications yet.</s-paragraph>

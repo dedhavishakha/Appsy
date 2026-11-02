@@ -32,6 +32,18 @@ if (process.env.APPSY_GOOGLE_SERVICES) {
   console.log("Google Analytics: the merchant's Firebase file is included.");
 }
 
+// The same for iPhone builds: GoogleService-Info.plist, from APPSY_GOOGLE_SERVICES_IOS.
+const googleServicesIos = join(mobile, ".GoogleService-Info.plist");
+await rm(googleServicesIos, { force: true });
+if (process.env.APPSY_GOOGLE_SERVICES_IOS) {
+  const file = Buffer.from(process.env.APPSY_GOOGLE_SERVICES_IOS, "base64").toString("utf8");
+  if (!/<plist[\s>]/.test(file) || !file.includes("<key>GOOGLE_APP_ID</key>")) {
+    fail("APPSY_GOOGLE_SERVICES_IOS isn't a GoogleService-Info.plist.");
+  }
+  await writeFile(googleServicesIos, file);
+  console.log("Google Analytics: the merchant's iPhone Firebase file is included.");
+}
+
 if (!settingsUrl) {
   console.log("No EXPO_PUBLIC_SETTINGS_URL: building without a store's design, name or icon.");
   process.exit(0);

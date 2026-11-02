@@ -16,7 +16,10 @@ import { loadIdentity, saveIdentity } from "../models/identity.server";
 import type { IdentityIssue } from "../models/identity";
 import { GA4_FEATURE, pushOn } from "@appsy/app-config";
 import { loadDesign } from "../models/design.server";
-import { loadFirebase } from "../models/google-analytics.server";
+import {
+  loadFirebase,
+  loadFirebaseIos,
+} from "../models/google-analytics.server";
 import { loadPrivacyPolicy } from "../models/privacy-policy.server";
 import { ensureShopSetup } from "../models/shop.server";
 import type { StoreIntent, StoreResult } from "../models/store-accounts";
@@ -34,8 +37,8 @@ import {
 // App ID and store accounts Appsy builds and uploads with (components/store-accounts.tsx),
 // building the app and uploading it for testing (components/app-builds.tsx), then how
 // merchants publish their app on the App Store and Google Play, with the wait times and
-// requirements (App Store requirement 5.9.2), and the privacy answers Google asks for
-// (components/privacy-forms.tsx). Store listings are the merchant's, filled in App Store
+// requirements (App Store requirement 5.9.2), and the privacy answers Google and Apple ask
+// for (components/privacy-forms.tsx). Store listings are the merchant's, filled in App Store
 // Connect and Play Console themselves (decided 2026-10-22). The guide's source is docs/06;
 // every figure links to the official page it comes from (checked 2026-10-21).
 
@@ -54,27 +57,38 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const filesAccess =
     granted === null ||
     ["read_files", "write_files"].some((name) => granted.includes(name));
-  const [identity, store, builds, privacyPolicy, design, firebase] =
-    await Promise.all([
-      loadIdentity(shop.appProject.id),
-      loadStoreAccounts(shop.appProject.id, session.shop),
-      loadBuilds(shop.appProject.id),
-      loadPrivacyPolicy(shop),
-      loadDesign(shop.appProject.id),
-      loadFirebase(shop.appProject.id),
-    ]);
-  // The privacy text and Google Play answers mention Google Analytics once the store has
-  // switched it on and given its Firebase file, and notifications once push notifications
-  // are on (Functionality page).
-  const googleAnalytics =
-    design.features[GA4_FEATURE]?.enabled === true && firebase !== null;
+  const [
+    identity,
+    store,
+    builds,
+    privacyPolicy,
+    design,
+    firebase,
+    firebaseIos,
+  ] = await Promise.all([
+    loadIdentity(shop.appProject.id),
+    loadStoreAccounts(shop.appProject.id, session.shop),
+    loadBuilds(shop.appProject.id),
+    loadPrivacyPolicy(shop),
+    loadDesign(shop.appProject.id),
+    loadFirebase(shop.appProject.id),
+    loadFirebaseIos(shop.appProject.id),
+  ]);
+  // The privacy text and the stores' answers mention Google Analytics once the store has
+  // switched it on and given the Firebase file for that platform (Google Play's for
+  // Android, the App Store's for iPhone, the privacy text's for either), and notifications
+  // once push notifications are on (Functionality page).
+  const ga4 = design.features[GA4_FEATURE]?.enabled === true;
   return {
     identity,
     store,
     builds,
     privacyPolicy,
     filesAccess,
-    googleAnalytics,
+    googleAnalytics: {
+      android: ga4 && firebase !== null,
+      ios: ga4 && firebaseIos !== null,
+    },
     pushNotifications: pushOn(design),
   };
 };
@@ -90,7 +104,11 @@ export const action = async ({
   const shop = await ensureShopSetup(admin, session.shop);
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "identity");
-  if (intent === "build-android" || intent === "upload-again") {
+  if (
+    intent === "build-android" ||
+    intent === "build-ios" ||
+    intent === "upload-again"
+  ) {
     return buildAction(
       intent,
       shop.appProject.id,
@@ -144,9 +162,13 @@ async function buildAction(
 ): Promise<BuildResult> {
   try {
     const result =
-      intent === "build-android"
-        ? await startBuild(appProjectId, createdBy)
-        : await uploadAgain(appProjectId, form.get("buildId"));
+      intent === "upload-again"
+        ? await uploadAgain(appProjectId, form.get("buildId"))
+        : await startBuild(
+            appProjectId,
+            intent === "build-ios" ? "ios" : "android",
+            createdBy,
+          );
     return { intent, ...result };
   } catch (error) {
     if (error instanceof Response) throw error;
@@ -266,7 +288,11 @@ export default function Publishing() {
         accounts={store.accounts}
       />
 
-      <AppBuilds android={builds.android} builds={builds.builds} />
+      <AppBuilds
+        android={builds.android}
+        ios={builds.ios}
+        builds={builds.builds}
+      />
 
       <s-banner tone="info" heading="Start your developer accounts early">
         <s-paragraph>
@@ -369,10 +395,18 @@ export default function Publishing() {
             then click Create. Add the app&apos;s Apple ID under Store accounts.
           </s-list-item>
           <s-list-item>
-            When Appsy has uploaded your app to TestFlight, complete the product
-            page (description, keywords, screenshots), the App Privacy answers,
-            the age rating and your privacy policy link. Then select the build
-            and submit it for review.
+            Click Build iPhone app under Build and upload above. With your key,
+            Appsy makes your app&apos;s distribution certificate and App Store
+            provisioning profile in your Apple account, builds your app and
+            uploads it to App Store Connect. Once Apple has processed it, invite
+            testers in TestFlight. For push notifications on iPhones, also add
+            an APNs key under Push notifications on the Functionality page.
+          </s-list-item>
+          <s-list-item>
+            Complete the product page (description, keywords, screenshots), the
+            App Privacy answers under Privacy, Google Play and App Store forms
+            below, the age rating and your privacy policy link. Then select the
+            build and submit it for review.
           </s-list-item>
         </s-ordered-list>
       </s-section>
@@ -401,14 +435,14 @@ export default function Publishing() {
           </s-list-item>
           <s-list-item>
             Complete the dashboard tasks: app content, with the answers under
-            Privacy and Google Play forms below, and the main store listing.
-            Google asks that your name (up to 30 characters) and descriptions
-            (up to 80 and 4,000) &quot;accurately describe your app&apos;s
-            functionality&quot;, so describe only what your app shows, and keep
-            emojis, ALL CAPS (unless it&apos;s your brand) and words like
-            &quot;best&quot;, &quot;#1&quot; or &quot;free&quot; out of the
-            name. Add a 512 × 512 px PNG icon (up to 1 MB), a 1024 × 500 px
-            feature graphic and at least two screenshots of your app. A
+            Privacy, Google Play and App Store forms below, and the main store
+            listing. Google asks that your name (up to 30 characters) and
+            descriptions (up to 80 and 4,000) &quot;accurately describe your
+            app&apos;s functionality&quot;, so describe only what your app
+            shows, and keep emojis, ALL CAPS (unless it&apos;s your brand) and
+            words like &quot;best&quot;, &quot;#1&quot; or &quot;free&quot; out
+            of the name. Add a 512 × 512 px PNG icon (up to 1 MB), a 1024 × 500
+            px feature graphic and at least two screenshots of your app. A
             screenshot&apos;s long side can be at most twice its short side, so
             crop phone screenshots if needed, for example to 1080 × 1920 px.
           </s-list-item>

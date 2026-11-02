@@ -7,25 +7,34 @@ import {
   type BuildStatus,
 } from "./builds";
 import { liveKey, loadStatus } from "./design.server";
-import { firebaseFileFor } from "./google-analytics.server";
+import { firebaseFileFor, firebaseIosFileFor } from "./google-analytics.server";
 import { identitySchema } from "./identity";
 import { identityKey } from "./identity.server";
 import {
-  startAndroidBuild,
+  startBuild as startEasBuild,
+  submitToAppStoreConnect,
   submitToGooglePlay,
   viewBuild,
   type MerchantApp,
+  type Platform,
 } from "./eas.server";
+import {
+  iosSigningFor,
+  SigningProblem,
+  type IosSigningFiles,
+} from "./ios-signing.server";
 import { publicUrl, readPublicFile } from "./storage.server";
 import { storeAccountsSchema } from "./store-accounts";
 import { getStoreKeys } from "./vault.server";
 
-// Builds the merchant's app on Expo (EAS) and uploads it to Google Play's internal testing
-// track, from the Publishing page (components/app-builds.tsx). Android first; the App
-// Store follows. Expo builds with the published design's address built in, and a check
-// every minute moves each build along: it uploads finished builds with the merchant's key
-// and records why a build or upload failed. Appsy never sends apps for review: merchants
-// do that in Play Console themselves (Apple 4.2.6; decided 2026-10-22).
+// Builds the merchant's app on Expo (EAS) and uploads it for testing, from the Publishing
+// page (components/app-builds.tsx): Android to Google Play's internal testing track, iPhone
+// to App Store Connect, where Apple makes it available in TestFlight. iPhone builds are
+// signed with files Appsy makes in the merchant's Apple account (ios-signing.server.ts).
+// Expo builds with the published design's address built in, and a check every minute moves
+// each build along: it uploads finished builds with the merchant's key and records why a
+// build or upload failed. Appsy never sends apps for review: merchants do that in Play
+// Console and App Store Connect themselves (Apple 4.2.6; decided 2026-10-22).
 
 const CHECK_EVERY_MS = 60_000;
 // Starting a build takes minutes at most (eas.server.ts stops the CLI at 15), and an upload
@@ -65,12 +74,20 @@ function unavailable() {
 }
 
 // Builds download the published files first (apps/mobile/scripts/fetch-build-identity.mjs)
-// and stop without them, so they're checked here before Expo is asked to build.
+// and stop without them, so they're checked here before Expo is asked to build. Each
+// platform also needs its store account; iPhone uploads need the app made in App Store
+// Connect first, because Apple's API can't make it.
 async function readiness(appProjectId: string) {
   const [project, status, liveFile, identityFile] = await Promise.all([
     db.appProject.findUniqueOrThrow({
       where: { id: appProjectId },
-      select: { androidPackage: true, storeAccounts: true, identity: true },
+      select: {
+        appName: true,
+        androidPackage: true,
+        iosBundleId: true,
+        storeAccounts: true,
+        identity: true,
+      },
     }),
     loadStatus(appProjectId),
     readPublicFile(liveKey(appProjectId)),
@@ -92,13 +109,28 @@ async function readiness(appProjectId: string) {
     missing.push("Choose your app's icon under App name and icon, then save.");
   else if (!identityFile)
     missing.push("Save your app name and icon again on this page.");
+  const android = [...missing];
   if (!project.androidPackage)
-    missing.push("Save your App ID under Store accounts.");
+    android.push("Save your App ID under Store accounts.");
   if (!accounts.success || !accounts.data.google)
-    missing.push("Connect Google Play under Store accounts.");
+    android.push("Connect Google Play under Store accounts.");
+  const ios = [...missing];
+  const apple = accounts.success ? accounts.data.apple : undefined;
+  if (!project.iosBundleId) ios.push("Save your App ID under Store accounts.");
+  if (!apple) ios.push("Connect the App Store under Store accounts.");
+  else if (!apple.ascAppId) {
+    ios.push(
+      "Create your app in App Store Connect, then add its Apple ID under Store accounts.",
+    );
+  }
+  const notNow = unavailable();
   return {
-    readiness: { missing, unavailable: unavailable() } satisfies BuildReadiness,
-    appId: project.androidPackage,
+    readiness: {
+      android: { missing: android, unavailable: notNow },
+      ios: { missing: ios, unavailable: notNow },
+    } satisfies Record<Platform, BuildReadiness>,
+    appIds: { android: project.androidPackage, ios: project.iosBundleId },
+    appName: project.appName,
     liveVersion: status.liveVersion,
   };
 }
@@ -128,7 +160,12 @@ function toRow(build: AppBuild): BuildRow {
 
 export async function loadBuilds(appProjectId: string) {
   keepChecking();
-  const [{ readiness: android }, builds] = await Promise.all([
+  const [
+    {
+      readiness: { android, ios },
+    },
+    builds,
+  ] = await Promise.all([
     readiness(appProjectId),
     db.appBuild.findMany({
       where: { appProjectId },
@@ -136,53 +173,77 @@ export async function loadBuilds(appProjectId: string) {
       take: SHOWN_BUILDS,
     }),
   ]);
-  return { android, builds: builds.map(toRow) };
+  return { android, ios, builds: builds.map(toRow) };
 }
 
-// Starts an Android build. The page gets its answer at once; Expo takes the project in the
-// background, and the build shows on the page as it moves along.
+// Starts a build for one platform. The page gets its answer at once; Expo takes the project
+// in the background, and the build shows on the page as it moves along.
 export async function startBuild(
   appProjectId: string,
+  platform: Platform,
   createdBy: string | null,
 ): Promise<Result> {
-  const {
-    readiness: ready,
-    appId,
-    liveVersion,
-  } = await readiness(appProjectId);
-  if (ready.unavailable) return issue(ready.unavailable);
-  if (ready.missing.length > 0 || !appId) return issue(ready.missing[0]);
+  const ready = await readiness(appProjectId);
+  const check = ready.readiness[platform];
+  const appId = ready.appIds[platform];
+  if (check.unavailable) return issue(check.unavailable);
+  if (check.missing.length > 0 || !appId) {
+    return issue(check.missing[0] ?? "Save your App ID under Store accounts.");
+  }
   const running = await db.appBuild.findFirst({
-    where: {
-      appProjectId,
-      platform: "android",
-      status: { in: ACTIVE_STATUSES },
-    },
+    where: { appProjectId, platform, status: { in: ACTIVE_STATUSES } },
   });
-  if (running) return issue("Your app is already being built.");
+  if (running) {
+    return issue(
+      platform === "ios"
+        ? "Your iPhone app is already being built."
+        : "Your Android app is already being built.",
+    );
+  }
 
   const build = await db.appBuild.create({
     data: {
       appProjectId,
-      platform: "android",
+      platform,
       status: "starting",
       appId,
-      designVersion: liveVersion,
+      designVersion: ready.liveVersion,
       createdBy,
     },
   });
   keepChecking();
-  // The merchant's Firebase file, when they gave one for this App ID (Google Analytics,
-  // Functionality page): the build includes Firebase only then.
-  const googleServices = await firebaseFileFor(appProjectId, appId);
-  void begin(build.id, { ...merchantApp(appProjectId, appId), googleServices });
+  // The merchant's Firebase file for this platform, when they gave one for this App ID
+  // (Google Analytics, Functionality page): the build includes Firebase only then.
+  const app: MerchantApp = {
+    ...merchantApp(appProjectId, appId),
+    ...(platform === "ios"
+      ? { googleServicesIos: await firebaseIosFileFor(appProjectId, appId) }
+      : { googleServices: await firebaseFileFor(appProjectId, appId) }),
+  };
+  void begin(build.id, platform, app, appProjectId, ready.appName);
   return { issues: [], notice: "Build started" };
 }
 
-async function begin(buildId: string, app: MerchantApp) {
+async function begin(
+  buildId: string,
+  platform: Platform,
+  app: MerchantApp,
+  appProjectId: string,
+  appName: string,
+) {
   starting.add(buildId);
   try {
-    const result = await startAndroidBuild(app);
+    let signing: IosSigningFiles | undefined;
+    if (platform === "ios") {
+      try {
+        signing = await iosSigningFor(appProjectId, app.appId, appName);
+      } catch (error) {
+        if (!(error instanceof SigningProblem)) throw error;
+        await settle(buildId, "failed", error.message);
+        return;
+      }
+    }
+    const result = await startEasBuild(platform, app, signing);
     if ("error" in result) {
       console.error(`Build ${buildId} didn't start on Expo:\n${result.error}`);
       await settle(
@@ -231,7 +292,7 @@ export async function uploadAgain(
   });
   if (claimed.count !== 1) return issue("This build can't be uploaded again.");
   void upload(buildId);
-  return { issues: [], notice: "Uploading to Google Play" };
+  return { issues: [], notice: "Uploading your app" };
 }
 
 async function upload(buildId: string) {
@@ -241,6 +302,10 @@ async function upload(buildId: string) {
       where: { id: buildId },
     });
     const keys = await getStoreKeys(build.appProjectId);
+    if (build.platform === "ios") {
+      await uploadToApple(build, keys?.apple);
+      return;
+    }
     if (!build.easBuildId || !keys?.google) {
       await settle(
         buildId,
@@ -271,6 +336,89 @@ async function upload(buildId: string) {
   } finally {
     uploading.delete(buildId);
   }
+}
+
+// An iPhone build to App Store Connect with the merchant's App Store Connect key, into the
+// app whose Apple ID they saved.
+async function uploadToApple(
+  build: AppBuild,
+  apple: NonNullable<Awaited<ReturnType<typeof getStoreKeys>>>["apple"],
+) {
+  const project = await db.appProject.findUniqueOrThrow({
+    where: { id: build.appProjectId },
+    select: { storeAccounts: true },
+  });
+  const accounts = storeAccountsSchema.safeParse(project.storeAccounts ?? {});
+  const ascAppId = accounts.success ? accounts.data.apple?.ascAppId : null;
+  if (!build.easBuildId || !apple || !ascAppId) {
+    await settle(
+      build.id,
+      "upload_failed",
+      "Connect the App Store and add your app's Apple ID under Store accounts, then try the upload again.",
+    );
+    return;
+  }
+  const result = await submitToAppStoreConnect(
+    build.easBuildId,
+    merchantApp(build.appProjectId, build.appId),
+    { key: apple, teamId: apple.teamId, ascAppId },
+  );
+  if ("error" in result) {
+    console.error(`Upload of build ${build.id} failed:\n${result.error}`);
+    const problem = appleUploadProblem(result.error);
+    await settle(build.id, problem.status, problem.message);
+    return;
+  }
+  await settle(build.id, "uploaded", null);
+}
+
+// The same for App Store Connect. Apple's wording here isn't confirmed yet (no iPhone upload
+// has run): anything unmatched gets the short message, and the output stays in the log.
+function appleUploadProblem(output: string): {
+  status: BuildStatus;
+  message: string;
+} {
+  if (
+    /bundle version must be higher|already been used|redundant binary|cfbundleversion/i.test(
+      output,
+    )
+  ) {
+    return {
+      status: "upload_refused",
+      message:
+        "App Store Connect already has this build of your app. Build your app again for a new one.",
+    };
+  }
+  if (
+    /no suitable application records|could not find (?:the )?app|app .*not found/i.test(
+      output,
+    )
+  ) {
+    return {
+      status: "upload_failed",
+      message:
+        "App Store Connect has no app with your app's Apple ID and App ID. Check both under Store accounts, then try the upload again.",
+    };
+  }
+  if (/agreement/i.test(output)) {
+    return {
+      status: "upload_failed",
+      message:
+        "Apple needs you to accept its latest agreement. Sign in to App Store Connect, accept it, then try the upload again.",
+    };
+  }
+  if (/\b401\b|unauthori[sz]ed|authentication credentials/i.test(output)) {
+    return {
+      status: "upload_failed",
+      message:
+        "Apple didn't accept your App Store Connect key. Connect it again under Store accounts, then try the upload again.",
+    };
+  }
+  return {
+    status: "upload_failed",
+    message:
+      "App Store Connect didn't take the upload. Please try the upload again.",
+  };
 }
 
 // What the merchant can do about Google Play's most common answers, in Google's words or

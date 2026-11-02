@@ -14,13 +14,17 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import type { IosSigningFiles } from "./ios-signing.server";
+import type { AppleKey } from "./store-apis.server";
 import type { GoogleServiceAccount } from "./vault.server";
 
 // Runs Expo's command-line tool (EAS CLI) for merchants' apps (models/builds.server.ts).
 // Builds and uploads work in a temporary copy of the phone app (the root package files,
 // packages/ and apps/mobile) whose eas.json carries that merchant's build and submit
 // profiles. EAS packs the copy without git (EAS_NO_VCS, with EAS_PROJECT_ROOT at the copy),
-// builds on Expo's servers, and uploads with the merchant's own Google key.
+// builds on Expo's servers, and uploads with the merchant's own Google or Apple key. Keys
+// and iPhone signing files go in a folder beside the copy, never inside it, so they're never
+// packed, and both are deleted when the command ends.
 //
 // The CLI reads the app's settings with the phone app's installed packages, so the copy
 // links to the repository's node_modules folders (never packed: EAS always leaves
@@ -48,6 +52,8 @@ const SKIPPED = new Set([
   ".build-identity",
   ".bundled-settings.json",
   ".google-services.json",
+  ".GoogleService-Info.plist",
+  "credentials.json",
   ".git",
 ]);
 
@@ -72,13 +78,27 @@ const PASSED_ENV = new Set([
 const EAS_BUILD_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-// The merchant's App ID (package name), the address of their published design, and, for
-// builds, their google-services.json when they connected Google Analytics.
+// The merchant's App ID (package name and bundle ID), the address of their published
+// design, and, for builds, their Firebase files when they connected Google Analytics.
 export type MerchantApp = {
   appId: string;
   settingsUrl: string;
   googleServices?: string | null;
+  googleServicesIos?: string | null;
 };
+
+export type Platform = "android" | "ios";
+
+// What one copy needs besides the app: for iPhone builds, the signing files; for uploads,
+// the merchant's Google service account, or their App Store Connect key, team and the app's
+// Apple ID.
+type WorkspaceOptions = {
+  iosSigning?: IosSigningFiles;
+  googleKey?: GoogleServiceAccount;
+  apple?: AppleUpload;
+};
+
+export type AppleUpload = { key: AppleKey; teamId: string; ascAppId: string };
 
 // What `eas build --json` and `eas build:view --json` say about a build.
 export type EasBuild = {
@@ -92,13 +112,21 @@ export type EasBuild = {
 
 type Run = { code: number; stdout: string; stderr: string };
 
+const secretsOf = (root: string) => `${root}-secrets`;
+
 async function workspace(
   kind: string,
   app: MerchantApp,
-  googleKey?: GoogleServiceAccount,
+  options: WorkspaceOptions = {},
 ) {
   const root = join(tmpdir(), "appsy-builds", `${kind}-${randomUUID()}`);
   await mkdir(root, { recursive: true });
+  await mkdir(secretsOf(root), { recursive: true, mode: 0o700 });
+  const secret = async (name: string, data: string | Buffer) => {
+    const path = join(secretsOf(root), name);
+    await writeFile(path, data, { mode: 0o600 });
+    return path;
+  };
   try {
     for (const file of ["package.json", "package-lock.json", ".gitignore"]) {
       if (existsSync(join(REPO_ROOT, file))) {
@@ -146,21 +174,71 @@ async function workspace(
                 ),
               }
             : {}),
+          ...(app.googleServicesIos
+            ? {
+                APPSY_GOOGLE_SERVICES_IOS: Buffer.from(
+                  app.googleServicesIos,
+                ).toString("base64"),
+              }
+            : {}),
         },
         android: { buildType: "app-bundle" },
+        // iPhone builds sign with Appsy's files ("local credentials"); Android keeps the
+        // keystore Expo made and keeps for it.
+        ...(options.iosSigning ? { ios: { credentialsSource: "local" } } : {}),
       },
     };
-    if (googleKey) {
-      // Only uploads get the key, in their own copy, deleted when they end.
-      const keyPath = join(root, "google-service-account.json");
-      await writeFile(keyPath, JSON.stringify(googleKey), { mode: 0o600 });
-      const android = { track: "internal", serviceAccountKeyPath: keyPath };
+    if (options.iosSigning) {
+      const { p12, password, profile } = options.iosSigning;
+      const credentials = {
+        ios: {
+          provisioningProfilePath: await secret(
+            "profile.mobileprovision",
+            Buffer.from(profile, "base64"),
+          ),
+          distributionCertificate: {
+            path: await secret("distribution.p12", Buffer.from(p12, "base64")),
+            password,
+          },
+        },
+      };
+      // Expo reads it from the app's folder; .gitignore keeps it out of what EAS packs.
+      await writeFile(
+        join(root, MOBILE, "credentials.json"),
+        JSON.stringify(credentials),
+        { mode: 0o600 },
+      );
+    }
+    if (options.googleKey) {
+      // Only uploads get the key, deleted when they end.
+      const android = {
+        track: "internal",
+        serviceAccountKeyPath: await secret(
+          "google-service-account.json",
+          JSON.stringify(options.googleKey),
+        ),
+      };
       eas.submit = {
         ...eas.submit,
         [SUBMIT_PROFILE]: { android },
         // For when Google Play takes only draft releases (an app never published).
         [DRAFT_SUBMIT_PROFILE]: {
           android: { ...android, releaseStatus: "draft" },
+        },
+      };
+    }
+    if (options.apple) {
+      const { key, teamId, ascAppId } = options.apple;
+      eas.submit = {
+        ...eas.submit,
+        [SUBMIT_PROFILE]: {
+          ios: {
+            ascAppId,
+            ascApiKeyPath: await secret("asc-api-key.p8", key.privateKey),
+            ascApiKeyIssuerId: key.issuerId,
+            ascApiKeyId: key.keyId,
+            appleTeamId: teamId,
+          },
         },
       };
     }
@@ -189,6 +267,7 @@ async function removeWorkspace(root: string) {
     if (stats?.isSymbolicLink()) await unlink(link);
   }
   await rm(root, { recursive: true, force: true });
+  await rm(secretsOf(root), { recursive: true, force: true });
 }
 
 function runEas(
@@ -246,15 +325,20 @@ function lastLines(run: Run, count = 8) {
     .join("\n");
 }
 
-// Starts an Android build (an .aab for Google Play) and returns once Expo has the project.
-export async function startAndroidBuild(app: MerchantApp) {
-  const root = await workspace("build", app);
+// Starts a build (an .aab for Google Play, or an .ipa for the App Store, signed with
+// Appsy's files) and returns once Expo has the project.
+export async function startBuild(
+  platform: Platform,
+  app: MerchantApp,
+  iosSigning?: IosSigningFiles,
+) {
+  const root = await workspace("build", app, { iosSigning });
   try {
     const run = await runEas(
       [
         "build",
         "--platform",
-        "android",
+        platform,
         "--profile",
         BUILD_PROFILE,
         "--non-interactive",
@@ -304,7 +388,7 @@ export async function submitToGooglePlay(
 ): Promise<{ draft: boolean } | { error: string }> {
   if (!EAS_BUILD_ID.test(easBuildId))
     throw new Error(`Bad build ID "${easBuildId}"`);
-  const root = await workspace("submit", app, googleKey);
+  const root = await workspace("submit", app, { googleKey });
   try {
     const submit = (profile: string) =>
       runEas(
@@ -332,6 +416,40 @@ export async function submitToGooglePlay(
     if (!/\bdraft\b/i.test(output(first))) return { error: output(first) };
     const draft = await submit(DRAFT_SUBMIT_PROFILE);
     return draft.code === 0 ? { draft: true } : { error: output(draft) };
+  } finally {
+    await removeWorkspace(root);
+  }
+}
+
+// Uploads a finished iPhone build to App Store Connect, where it reaches TestFlight once
+// Apple has processed it. An error is the CLI's whole output, as above.
+export async function submitToAppStoreConnect(
+  easBuildId: string,
+  app: MerchantApp,
+  apple: AppleUpload,
+): Promise<{ done: true } | { error: string }> {
+  if (!EAS_BUILD_ID.test(easBuildId))
+    throw new Error(`Bad build ID "${easBuildId}"`);
+  const root = await workspace("submit", app, { apple });
+  try {
+    const run = await runEas(
+      [
+        "submit",
+        "--platform",
+        "ios",
+        "--profile",
+        SUBMIT_PROFILE,
+        "--id",
+        easBuildId,
+        "--non-interactive",
+      ],
+      root,
+      app.appId,
+      30 * 60_000,
+    );
+    return run.code === 0
+      ? { done: true }
+      : { error: `${run.stdout}\n${run.stderr}` };
   } finally {
     await removeWorkspace(root);
   }

@@ -1,10 +1,11 @@
 import type { AnalyticsEventName } from "./analytics";
 import { PUSH_DEVICE_KEEP_DAYS } from "./push";
 
-// What every Appsy app does with shoppers' data, as merchants tell shoppers and Google: the
-// section each store adds to its own privacy policy, and the answers for Google Play's Data
-// safety form (docs/05, sections 7 and 9). Appsy's own policy (admin routes/privacy.tsx)
-// says the same, so a change in what the app sends means a change in both.
+// What every Appsy app does with shoppers' data, as merchants tell shoppers, Google and
+// Apple: the section each store adds to its own privacy policy, the answers for Google
+// Play's Data safety form, and the answers for App Privacy in App Store Connect (docs/05,
+// sections 7 and 9). Appsy's own policy (admin routes/privacy.tsx) says the same, so a
+// change in what the app sends means a change in all of them.
 
 // Appsy deletes usage events this long after they happen (admin models/usage-data.server.ts).
 export const USAGE_DATA_KEEP_MONTHS = 13;
@@ -55,18 +56,20 @@ const GOOGLE_ANALYTICS_PARAGRAPH = [
   "account.",
 ];
 
-// What push notifications add (push.ts): the phone's address from Google's Firebase Cloud
-// Messaging and a random ID, only once the shopper allows notifications. Bag reminders are
-// scheduled on the phone, and taps are counted without saying whose.
+// What push notifications add (push.ts): the phone's notification address, from Google's
+// Firebase Cloud Messaging on Android and Apple's push service on iPhones, and a random ID,
+// only once the shopper allows notifications. Bag reminders are scheduled on the phone, and
+// taps are counted without saying whose.
 const PUSH_PARAGRAPH = [
   "Notifications. The app asks before it sends you notifications. If you allow them, the app",
-  "sends us your phone's notification address from Google's Firebase Cloud Messaging, which",
-  "delivers our notifications, with a random ID the app creates and the country you shop in,",
-  "so we can send you offers and news. Reminders about items left in your bag are set up on",
-  "your phone: your bag isn't sent to us. We count how many people open each notification,",
-  "without recording who. You can turn notifications off at any time under Privacy choices in",
-  "the app's menu, which also deletes your phone's notification address from our records, or",
-  "in your phone's settings.",
+  "sends us your phone's notification address, with a random ID the app creates and the",
+  "country you shop in, so we can send you offers and news. The address comes from the",
+  "service that delivers our notifications: Google's Firebase Cloud Messaging on Android",
+  "phones, and the Apple Push Notification service on iPhones. Reminders about items left in",
+  "your bag are set up on your phone: your bag isn't sent to us. We count how many people",
+  "open each notification, without recording who. You can turn notifications off at any time",
+  "under Privacy choices in the app's menu, which also deletes your phone's notification",
+  "address from our records, or in your phone's settings.",
 ];
 
 // The section a store adds to its privacy policy, as plain text to paste into Shopify. It
@@ -121,8 +124,8 @@ export function appPolicyText(appName: string, options: PrivacyOptions = {}): st
       `${USAGE_DATA_KEEP_MONTHS} months after it's collected.`,
       ...(push
         ? [
-            "A phone's notification address is deleted as soon as Google says it no longer",
-            `works, or ${PUSH_DEVICE_KEEP_DAYS} days after the app was last opened on it.`,
+            "A phone's notification address is deleted as soon as Google or Apple says it no",
+            `longer works, or ${PUSH_DEVICE_KEEP_DAYS} days after the app was last opened on it.`,
           ]
         : []),
     ],
@@ -240,3 +243,142 @@ export function dataSafetyItems(options: PrivacyOptions = {}): DataSafetyItem[] 
 }
 
 export const DATA_SAFETY_ITEMS: DataSafetyItem[] = dataSafetyItems();
+
+// Apple's names for the purposes Appsy's App Store answers use (App Privacy Details,
+// https://developer.apple.com/app-store/app-privacy-details/, checked 2026-11-02). Apple puts
+// "sending marketing communications directly to your users" under Developer's Advertising
+// or Marketing.
+export type AppPrivacyPurpose =
+  | "App Functionality"
+  | "Analytics"
+  | "Developer's Advertising or Marketing";
+
+// One data type to choose under App Privacy in App Store Connect, with Apple's category and
+// type names. None is used for tracking as Apple defines it: no data is linked with other
+// companies' data for advertising, or shared with a data broker. `linked`: whether it's
+// linked to the shopper's identity, which Apple says collected data usually is unless it's
+// de-identified before it's collected.
+export type AppPrivacyItem = {
+  category: string;
+  type: string;
+  what: string;
+  purposes: AppPrivacyPurpose[];
+  linked: boolean;
+};
+
+const enteredAtCheckout = (category: string, type: string, what: string): AppPrivacyItem => ({
+  category,
+  type,
+  what,
+  purposes: ["App Functionality"],
+  linked: true,
+});
+
+// In the order of Apple's App Privacy Details page. Like the Data safety answers, they
+// include what shoppers enter in Shopify's checkout, which opens in the app: Apple counts data
+// collected through web pages in an app. Google Analytics adds a
+// coarse location and Firebase's diagnostic data, which Firebase's own Apple privacy file
+// declares as not linked (FirebaseInstallations); push notifications add the phone's address
+// from Apple's push service and the country it's kept with.
+export function appPrivacyItems(options: PrivacyOptions = {}): AppPrivacyItem[] {
+  const ga4 = options.googleAnalytics === true;
+  const push = options.pushNotifications === true;
+  const ids = ga4
+    ? "The random ID the app creates, and Google Analytics' ID for the app on the phone, after the shopper allows usage data. Not the advertising ID or Apple's vendor ID."
+    : "The random ID the app creates when the shopper allows usage data.";
+  const usage = ga4
+    ? `Usage data, after the shopper allows it: ${MERCHANT_EVENTS}, with their times, sent to Appsy and Google Analytics.`
+    : `Usage data, after the shopper allows it: ${MERCHANT_EVENTS}, with their times.`;
+  const location: string[] = [
+    ...(ga4
+      ? [
+          "Worked out by Google Analytics from the phone's IP address, after the shopper allows usage data.",
+        ]
+      : []),
+    ...(push
+      ? [
+          "The country the shopper chose in the app, kept with their notification address after they allow notifications, to send offers to some countries.",
+        ]
+      : []),
+  ];
+  return [
+    enteredAtCheckout("Contact Info", "Name", "Entered at checkout."),
+    enteredAtCheckout("Contact Info", "Email Address", "Entered at checkout."),
+    enteredAtCheckout(
+      "Contact Info",
+      "Phone Number",
+      "Entered at checkout, if the checkout asks for it.",
+    ),
+    enteredAtCheckout(
+      "Contact Info",
+      "Physical Address",
+      "The delivery address entered at checkout.",
+    ),
+    enteredAtCheckout(
+      "Financial Info",
+      "Payment Info",
+      "Card or other payment details entered at checkout.",
+    ),
+    ...(location.length > 0
+      ? [
+          {
+            category: "Location",
+            type: "Coarse Location",
+            what: location.join(" "),
+            purposes: [
+              ...(ga4 ? ["Analytics" as const] : []),
+              ...(push ? ["Developer's Advertising or Marketing" as const] : []),
+            ],
+            linked: true,
+          },
+        ]
+      : []),
+    {
+      category: "Search History",
+      type: "Search History",
+      what: "The words shoppers search for, sent to Shopify to find products.",
+      purposes: ["App Functionality"],
+      linked: true,
+    },
+    {
+      category: "Identifiers",
+      type: "Device ID",
+      what: push
+        ? `${ids} And, after the shopper allows notifications, the phone's notification address from Apple's push service and another random ID, to send the store's offers and news.`
+        : ids,
+      purposes: push
+        ? ["App Functionality", "Analytics", "Developer's Advertising or Marketing"]
+        : ["Analytics"],
+      linked: true,
+    },
+    {
+      category: "Purchases",
+      type: "Purchase History",
+      what: ga4
+        ? "The bag and the order placed at checkout; orders also go to Google Analytics, after the shopper allows usage data."
+        : "The bag and the order placed at checkout.",
+      purposes: ga4 ? ["App Functionality", "Analytics"] : ["App Functionality"],
+      linked: true,
+    },
+    {
+      category: "Usage Data",
+      type: "Product Interaction",
+      what: push
+        ? `${usage} And, after the shopper allows notifications, a count of taps on each notification, not linked to the phone.`
+        : usage,
+      purposes: ["Analytics"],
+      linked: true,
+    },
+    ...(ga4
+      ? [
+          {
+            category: "Diagnostics",
+            type: "Other Diagnostic Data",
+            what: "Firebase, which Google Analytics uses, tells Google the phone's model and system version, and the app's ID and platform, never linked to the shopper or the phone.",
+            purposes: ["Analytics" as const],
+            linked: false,
+          },
+        ]
+      : []),
+  ];
+}

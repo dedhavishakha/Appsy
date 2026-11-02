@@ -22,3 +22,11 @@ expo-env.d.ts
 
 # The merchant's Firebase file for Google Analytics, for builds (fetch-build-identity.mjs)
 .google-services.json
+
+# The merchant's iPhone Firebase file for Google Analytics, for builds
+# (fetch-build-identity.mjs)
+.GoogleService-Info.plist
+
+# iPhone signing for a merchant's build: Appsy's server writes it into its temporary copy
+# (apps/admin/app/models/eas.server.ts), and it must never be packed or committed
+credentials.json

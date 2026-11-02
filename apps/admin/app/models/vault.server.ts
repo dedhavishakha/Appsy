@@ -4,8 +4,9 @@ import { join, resolve } from "node:path";
 import type { AppleTeamType } from "./store-accounts";
 
 // The vault for merchants' keys: their App Store Connect API key, their Google Play service
-// account, and their Firebase project's service account for push notifications. Keys live
-// only here; the database keeps the secret's ARN (doc 05, section 6).
+// account, and for push notifications their Firebase project's service account and their
+// APNs key, with the iPhone signing files Appsy makes. Keys live only here; the database
+// keeps the secret's ARN (doc 05, section 6).
 //
 // On the server (AWS_REGION set): one AWS Secrets Manager secret per merchant app, named
 // appsy/merchants/<app id>, encrypted by Secrets Manager with AWS KMS and written and read
@@ -22,6 +23,10 @@ export type GoogleServiceAccount = {
   [field: string]: unknown;
 };
 
+// An APNs key (.p8) from the merchant's Apple Developer account, with its Key ID and their
+// Team ID.
+export type ApnsKey = { keyId: string; teamId: string; privateKey: string };
+
 export type StoreKeys = {
   apple?: {
     issuerId: string;
@@ -33,6 +38,27 @@ export type StoreKeys = {
   google?: { serviceAccount: GoogleServiceAccount };
   // Sends push notifications through Firebase Cloud Messaging (models/push.server.ts).
   firebase?: { serviceAccount: GoogleServiceAccount };
+  // Sends iPhone notifications through Apple's push service (models/apns.server.ts).
+  apns?: ApnsKey;
+  // The iPhone signing files Appsy made with the merchant's App Store Connect key
+  // (models/ios-signing.server.ts).
+  iosSigning?: IosSigning;
+};
+
+// A distribution certificate (with its private key, as the .p12 Expo's builds take) and an
+// App Store provisioning profile per App ID, all in the merchant's Apple team.
+export type IosSigning = {
+  certificate: {
+    id: string;
+    serialNumber: string;
+    expiresAt: string;
+    p12: string;
+    password: string;
+  };
+  profiles: Record<
+    string,
+    { id: string; content: string; expiresAt: string; certificateId: string }
+  >;
 };
 
 const APP_ID = /^[0-9a-f-]{36}$/;
@@ -109,7 +135,7 @@ export async function keepStoreKeys(
   appProjectId: string,
   keys: StoreKeys,
 ): Promise<string | null> {
-  if (keys.apple || keys.google || keys.firebase) {
+  if (Object.values(keys).some(Boolean)) {
     return putStoreKeys(appProjectId, keys);
   }
   await deleteStoreKeys(appProjectId);

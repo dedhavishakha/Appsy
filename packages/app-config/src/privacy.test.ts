@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   APP_POLICY_HEADING,
   appPolicyText,
+  appPrivacyItems,
   DATA_SAFETY_ITEMS,
   dataSafetyItems,
   USAGE_DATA_KEEP_MONTHS,
@@ -50,7 +51,76 @@ describe("the section stores add to their privacy policy", () => {
     expect(withPush).toContain("your bag isn't sent to us");
     expect(withPush).toContain("usage data and notification addresses can be reached only");
     expect(withPush).toContain("270 days after the app was last opened on it");
+    expect(withPush).toContain("Firebase Cloud Messaging on Android");
+    expect(withPush).toContain("the Apple Push Notification service on iPhones");
+    expect(withPush).toContain("as soon as Google or Apple says it no longer works");
     expect(withPush).not.toMatch(/ {2}|\n{3}|^ | $/m);
+  });
+});
+
+describe("App Store answers", () => {
+  const types = (items: ReturnType<typeof appPrivacyItems>) =>
+    items.map((item) => `${item.category} › ${item.type}`);
+
+  it("cover checkout, searches, the app's ID, purchases and usage data, all linked", () => {
+    const items = appPrivacyItems();
+    expect(types(items)).toEqual([
+      "Contact Info › Name",
+      "Contact Info › Email Address",
+      "Contact Info › Phone Number",
+      "Contact Info › Physical Address",
+      "Financial Info › Payment Info",
+      "Search History › Search History",
+      "Identifiers › Device ID",
+      "Purchases › Purchase History",
+      "Usage Data › Product Interaction",
+    ]);
+    expect(items.every((item) => item.linked)).toBe(true);
+    expect(items.find((item) => item.type === "Device ID")?.purposes).toEqual(["Analytics"]);
+  });
+
+  it("add a coarse location and Firebase's unlinked diagnostics with Google Analytics", () => {
+    const items = appPrivacyItems({ googleAnalytics: true });
+    expect(items.find((item) => item.type === "Coarse Location")).toMatchObject({
+      purposes: ["Analytics"],
+      linked: true,
+    });
+    expect(items.find((item) => item.type === "Other Diagnostic Data")).toMatchObject({
+      category: "Diagnostics",
+      purposes: ["Analytics"],
+      linked: false,
+    });
+    expect(items.find((item) => item.type === "Device ID")?.what).toContain(
+      "Not the advertising ID or Apple's vendor ID",
+    );
+  });
+
+  it("add the notification address, its country and marketing with push notifications", () => {
+    const items = appPrivacyItems({ pushNotifications: true });
+    const ids = items.find((item) => item.type === "Device ID");
+    expect(ids?.what).toContain("Apple's push service");
+    expect(ids?.purposes).toEqual([
+      "App Functionality",
+      "Analytics",
+      "Developer's Advertising or Marketing",
+    ]);
+    expect(items.find((item) => item.type === "Coarse Location")).toMatchObject({
+      purposes: ["Developer's Advertising or Marketing"],
+    });
+    expect(items.find((item) => item.type === "Product Interaction")?.what).toContain(
+      "not linked to the phone",
+    );
+  });
+
+  it("list each data type once, in Apple's order", () => {
+    const items = appPrivacyItems({ googleAnalytics: true, pushNotifications: true });
+    expect(new Set(types(items)).size).toBe(items.length);
+    expect(types(items).indexOf("Location › Coarse Location")).toBe(5);
+    expect(types(items).at(-1)).toBe("Diagnostics › Other Diagnostic Data");
+    expect(items.find((item) => item.type === "Coarse Location")?.purposes).toEqual([
+      "Analytics",
+      "Developer's Advertising or Marketing",
+    ]);
   });
 });
 

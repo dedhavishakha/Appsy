@@ -10,12 +10,17 @@ const { join } = require("node:path");
 // - the app's name, icon and splash screen that the merchant saved in Appsy (Publishing
 //   page), which builds download first as well, into .build-identity/. Without them the name
 //   is the design's app name (Expo Go shows it too), else "Appsy", with Expo's defaults;
-// - Firebase, for Google Analytics and push notifications, only when the merchant's
-//   google-services.json is here (fetch-build-identity.mjs writes it): React Native
-//   Firebase's Expo plugin stops a build that has none, and react-native.config.js leaves its
-//   native code out without it;
+// - Firebase, for Google Analytics (and Android push notifications), only when the
+//   merchant's Firebase file for the platform being built is here: Appsy's server gives an
+//   Android build only google-services.json and an iPhone build only
+//   GoogleService-Info.plist (fetch-build-identity.mjs writes them). React Native Firebase's
+//   Expo plugin stops a build without the file, and react-native.config.js leaves its native
+//   code out without it. On iPhone it also needs dynamic frameworks (expo-build-properties;
+//   https://rnfirebase.io/ios-spm);
 // - notifications (expo-notifications) in every build: the bag reminder needs no Firebase.
-//   Android draws the small icon as a white shape, tinted with the store's brand colour.
+//   Android draws the small icon as a white shape, tinted with the store's brand colour. A
+//   merchant's iPhone builds go to TestFlight and the App Store, so their push entitlement
+//   is "production".
 // No build uses the phone's advertising ID, so its permission is removed from every build.
 // Plain JavaScript, so it needs no Node.js type definitions in the app's TypeScript setup.
 
@@ -31,8 +36,9 @@ const SPLASH_IMAGE_WIDTH = 200;
 // one fails ("drawable/splashscreen_logo not found"). Until the merchant saves an icon, this
 // transparent one leaves only the background colour.
 const BLANK_SPLASH = "./assets/splash-blank.png";
-// The merchant's Firebase file (react-native.config.js looks for the same one).
+// The merchant's Firebase files (react-native.config.js looks for the same ones).
 const GOOGLE_SERVICES = "./.google-services.json";
+const GOOGLE_SERVICES_IOS = "./.GoogleService-Info.plist";
 // Firebase's SDK adds it; Expo's blockedPermissions removes it from the final manifest.
 const AD_ID_PERMISSION = "com.google.android.gms.permission.AD_ID";
 // Expo: "96x96 all-white png with transparency".
@@ -40,6 +46,55 @@ const NOTIFICATION_ICON = "./assets/notification-icon.png";
 // The app's one notification channel (PUSH_CHANNEL in packages/app-config/src/push.ts).
 const NOTIFICATION_CHANNEL = "offers";
 const HEX_COLOUR = /^#[0-9a-f]{6}$/i;
+
+// Apple's "required reason" APIs that the app's native libraries use, copied from their own
+// PrivacyInfo.xcprivacy files: Expo says Apple doesn't read every library's file in these
+// builds (https://docs.expo.dev/guides/apple-privacy/). Checked 2026-10-31 against React
+// Native, AsyncStorage and expo-application, -constants, -file-system, -localization and
+// -notifications. A new native library means checking its file again.
+const PRIVACY_MANIFEST = {
+  NSPrivacyAccessedAPITypes: [
+    {
+      NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryUserDefaults",
+      NSPrivacyAccessedAPITypeReasons: ["CA92.1"],
+    },
+    {
+      NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryFileTimestamp",
+      NSPrivacyAccessedAPITypeReasons: ["C617.1", "0A2A.1", "3B52.1"],
+    },
+    {
+      NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryDiskSpace",
+      NSPrivacyAccessedAPITypeReasons: ["E174.1", "85F4.1"],
+    },
+    {
+      NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategorySystemBootTime",
+      NSPrivacyAccessedAPITypeReasons: ["35F9.1"],
+    },
+  ],
+};
+
+// iPhone builds with Firebase (the merchant's GoogleService-Info.plist) add Firebase's own
+// reasons for UserDefaults: C56D.1 (GoogleUtilities) and 1C8F.1 (FirebaseCoreInternal), from
+// their PrivacyInfo.xcprivacy files in Google's GoogleUtilities and firebase-ios-sdk
+// repositories (checked 2026-11-02). Their file timestamps reason, C617.1, is above already.
+const FIREBASE_USER_DEFAULTS_REASONS = ["C56D.1", "1C8F.1"];
+
+function privacyManifest(firebaseIos) {
+  if (!firebaseIos) return PRIVACY_MANIFEST;
+  return {
+    NSPrivacyAccessedAPITypes: PRIVACY_MANIFEST.NSPrivacyAccessedAPITypes.map((entry) =>
+      entry.NSPrivacyAccessedAPIType === "NSPrivacyAccessedAPICategoryUserDefaults"
+        ? {
+            ...entry,
+            NSPrivacyAccessedAPITypeReasons: [
+              ...entry.NSPrivacyAccessedAPITypeReasons,
+              ...FIREBASE_USER_DEFAULTS_REASONS,
+            ],
+          }
+        : entry,
+    ),
+  };
+}
 
 /**
  * @param {import("expo/config").ConfigContext} context
@@ -56,7 +111,8 @@ module.exports = ({ config, projectRoot }) => {
   // A merchant's builds, started by Appsy's server, carry their App ID (Publishing › Store
   // accounts) as the bundle ID and package name; without it, app.json's own test app ID.
   const appId = process.env.APPSY_APP_ID;
-  const firebase = !preview && existsSync(join(projectRoot, GOOGLE_SERVICES));
+  const firebaseAndroid = !preview && existsSync(join(projectRoot, GOOGLE_SERVICES));
+  const firebaseIos = !preview && existsSync(join(projectRoot, GOOGLE_SERVICES_IOS));
   const brand = bundledSettings?.theme?.colors?.brand;
   return {
     ...config,
@@ -65,11 +121,19 @@ module.exports = ({ config, projectRoot }) => {
       (typeof appName === "string" && appName ? appName : (config.name ?? "Appsy")),
     slug: config.slug ?? "appsy-by-scopegen",
     ...(identity?.icon ? { icon: identity.icon } : {}),
-    ios: { ...config.ios, ...(appId ? { bundleIdentifier: appId } : {}) },
+    ios: {
+      ...config.ios,
+      ...(appId ? { bundleIdentifier: appId } : {}),
+      ...(firebaseIos ? { googleServicesFile: GOOGLE_SERVICES_IOS } : {}),
+      // The app uses only the encryption built into iOS (HTTPS), so App Store Connect
+      // needn't ask about export compliance for each build.
+      config: { ...config.ios?.config, usesNonExemptEncryption: false },
+      privacyManifests: { ...config.ios?.privacyManifests, ...privacyManifest(firebaseIos) },
+    },
     android: {
       ...config.android,
       ...(appId ? { package: appId } : {}),
-      ...(firebase ? { googleServicesFile: GOOGLE_SERVICES } : {}),
+      ...(firebaseAndroid ? { googleServicesFile: GOOGLE_SERVICES } : {}),
       blockedPermissions: [...(config.android?.blockedPermissions ?? []), AD_ID_PERMISSION],
       ...(identity?.android
         ? {
@@ -92,13 +156,15 @@ module.exports = ({ config, projectRoot }) => {
           imageWidth: SPLASH_IMAGE_WIDTH,
         },
       ],
-      ...(firebase ? ["@react-native-firebase/app"] : []),
+      ...(firebaseAndroid || firebaseIos ? ["@react-native-firebase/app"] : []),
+      ...(firebaseIos ? [["expo-build-properties", { ios: { useFrameworks: "dynamic" } }]] : []),
       [
         "expo-notifications",
         {
           icon: NOTIFICATION_ICON,
           ...(typeof brand === "string" && HEX_COLOUR.test(brand) ? { color: brand } : {}),
           defaultChannel: NOTIFICATION_CHANNEL,
+          ...(appId ? { mode: "production" } : {}),
         },
       ],
     ],
@@ -107,7 +173,11 @@ module.exports = ({ config, projectRoot }) => {
       ...(preview ? { baseUrl: "/preview" } : {}),
     },
     // `firebase`: whether this build has Firebase, so the app only reaches for it then
-    // (src/lib/ga4.native.ts).
-    extra: { ...config.extra, ...(bundledSettings ? { bundledSettings } : {}), firebase },
+    // (src/lib/ga4.native.ts, src/lib/notifications.native.ts).
+    extra: {
+      ...config.extra,
+      ...(bundledSettings ? { bundledSettings } : {}),
+      firebase: firebaseAndroid || firebaseIos,
+    },
   };
 };

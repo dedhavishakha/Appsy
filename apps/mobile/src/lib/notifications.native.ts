@@ -4,9 +4,10 @@ import { Platform } from "react-native";
 import { PUSH_CHANNEL, PUSH_CHANNEL_NAME } from "@appsy/app-config";
 
 // The phone's side of push notifications (app-config push.ts), through expo-notifications.
-// The phone's notification address comes from Firebase Cloud Messaging, which only builds
-// made with the merchant's google-services.json have (app.config.js sets extra.firebase).
-// The bag reminder is a notification the phone schedules for itself, so it needs neither.
+// An Android phone's notification address comes from Firebase Cloud Messaging, which only
+// builds made with the merchant's google-services.json have (app.config.js sets
+// extra.firebase); an iPhone's comes from Apple's push service. The bag reminder is a
+// notification the phone schedules for itself, so it needs neither.
 
 export type NotificationPermission = { granted: boolean; canAskAgain: boolean };
 
@@ -50,14 +51,15 @@ export async function askPermission(): Promise<NotificationPermission> {
   return { granted: status.granted, canAskAgain: status.canAskAgain };
 }
 
-// The phone's address from Firebase Cloud Messaging, or null in builds without Firebase.
+// The phone's address: on Android from Firebase Cloud Messaging (null in builds without
+// Firebase), on iPhone from Apple's push service, which Appsy sends to directly.
 export async function deviceToken(): Promise<string | null> {
-  if (!hasFirebase()) return null;
+  if (Platform.OS === "android" && !hasFirebase()) return null;
   const token = await Notifications.getDevicePushTokenAsync();
   return typeof token.data === "string" ? token.data : null;
 }
 
-// Firebase sometimes gives the phone a new address.
+// Firebase or Apple sometimes gives the phone a new address.
 export function onTokenChange(listener: (token: string) => void): () => void {
   const subscription = Notifications.addPushTokenListener((token) => {
     if (typeof token.data === "string") listener(token.data);
@@ -76,12 +78,12 @@ export function onTap(listener: (data: unknown) => void): () => void {
     handled.add(id);
     listener(response.notification.request.content.data);
   };
-  void Notifications.getLastNotificationResponseAsync()
-    .then((response) => {
-      handle(response);
-      return Notifications.clearLastNotificationResponseAsync();
-    })
-    .catch(() => {});
+  try {
+    handle(Notifications.getLastNotificationResponse());
+    Notifications.clearLastNotificationResponse();
+  } catch {
+    // No tap to read: the app opened normally.
+  }
   const subscription = Notifications.addNotificationResponseReceivedListener(handle);
   return () => subscription.remove();
 }

@@ -2,7 +2,9 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import {
   checkGoogleServices,
+  checkGoogleServicesPlist,
   type FirebaseAndroidApp,
+  type FirebaseIosApp,
 } from "@appsy/app-config";
 import db from "../db.server";
 
@@ -103,5 +105,94 @@ export async function removeFirebase(appProjectId: string): Promise<void> {
   await db.appProject.update({
     where: { id: appProjectId },
     data: { firebase: Prisma.DbNull },
+  });
+}
+
+// The same for iPhone: the merchant's GoogleService-Info.plist, checked against the App ID
+// (the iPhone app's bundle ID) and kept on their AppProject for iPhone builds.
+const storedIosSchema = z.object({
+  file: z.string().min(1),
+  projectId: z.string(),
+  projectNumber: z.string(),
+  firebaseAppId: z.string(),
+  bundleId: z.string(),
+  uploadedAt: z.iso.datetime(),
+});
+
+export type FirebaseIosConnection = FirebaseIosApp & { uploadedAt: string };
+
+function readStoredIos(value: unknown) {
+  const stored = storedIosSchema.safeParse(value);
+  return stored.success ? stored.data : null;
+}
+
+export async function loadFirebaseIos(
+  appProjectId: string,
+): Promise<FirebaseIosConnection | null> {
+  const project = await db.appProject.findUnique({
+    where: { id: appProjectId },
+    select: { firebaseIos: true },
+  });
+  const stored = readStoredIos(project?.firebaseIos);
+  if (!stored) return null;
+  return {
+    projectId: stored.projectId,
+    projectNumber: stored.projectNumber,
+    firebaseAppId: stored.firebaseAppId,
+    bundleId: stored.bundleId,
+    uploadedAt: stored.uploadedAt,
+  };
+}
+
+export async function firebaseIosFileFor(
+  appProjectId: string,
+  bundleId: string,
+): Promise<string | null> {
+  const project = await db.appProject.findUnique({
+    where: { id: appProjectId },
+    select: { firebaseIos: true },
+  });
+  const stored = readStoredIos(project?.firebaseIos);
+  return stored && stored.bundleId === bundleId ? stored.file : null;
+}
+
+export async function saveFirebaseIos(
+  appProjectId: string,
+  appId: string | null,
+  text: string,
+): Promise<string[]> {
+  if (!appId) {
+    return [
+      "Choose your App ID on the Publishing page first: your Firebase iPhone app uses it as its bundle ID.",
+    ];
+  }
+  if (text.length > MAX_FILE_BYTES) {
+    return ["This file is too large to be a GoogleService-Info.plist."];
+  }
+  const check = checkGoogleServicesPlist(text, appId);
+  if (!check.ok) {
+    return [
+      check.problem === "other-app"
+        ? `This file is for ${check.bundleId}, not your App ID ${appId}. In Google Analytics, add an iOS app stream with the bundle ID ${appId}, then download its GoogleService-Info.plist.`
+        : "This isn't a GoogleService-Info.plist. Download it from your iOS app stream in Google Analytics, or from your Firebase project settings.",
+    ];
+  }
+  await db.appProject.update({
+    where: { id: appProjectId },
+    data: {
+      firebaseIos: {
+        file: text,
+        ...check.app,
+        uploadedAt: new Date().toISOString(),
+      },
+    },
+  });
+  return [];
+}
+
+export async function removeFirebaseIos(appProjectId: string): Promise<void> {
+  await db.appProject.update({
+    where: { id: appProjectId },
+    data: { firebaseIos: Prisma.DbNull },
   });
 }

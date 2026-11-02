@@ -37,7 +37,7 @@ export type BuildRow = {
 // can't run at all right now.
 export type BuildReadiness = { missing: string[]; unavailable: string | null };
 
-export type BuildIntent = "build-android" | "upload-again";
+export type BuildIntent = "build-android" | "build-ios" | "upload-again";
 export type BuildResult = {
   intent: BuildIntent;
   issues: { message: string }[];

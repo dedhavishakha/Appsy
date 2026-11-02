@@ -18,3 +18,5 @@ apps/mobile/web-build
 apps/mobile/.bundled-settings.json
 apps/mobile/.build-identity
 apps/mobile/.google-services.json
+apps/mobile/.GoogleService-Info.plist
+apps/mobile/credentials.json

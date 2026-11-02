@@ -5,9 +5,10 @@ import { imageValue, linkValue } from "./inputs";
 
 // Push notifications (docs/03, section I; decided 2026-10-30). Merchants send campaigns from
 // Appsy's Push notifications page, straight to Google's Firebase Cloud Messaging (FCM) with
-// their own Firebase project's key. Each phone schedules its own bag reminder, so Appsy keeps
-// no shoppers' bags. The app asks the first time the shopper adds to their bag, and Privacy
-// choices turns notifications off. Android only for now: iPhones need Apple's push service.
+// their own Firebase project's key for Android phones, and straight to Apple's push service
+// (APNs) with their own APNs key for iPhones (2026-10-31). Each phone schedules its own bag
+// reminder, so Appsy keeps no shoppers' bags. The app asks the first time the shopper adds to
+// their bag, and Privacy choices turns notifications off.
 export const PUSH_FEATURE = "push-notifications";
 
 // The app's one Android notification channel. The app makes it before asking for permission,
@@ -17,17 +18,19 @@ export const PUSH_CHANNEL = "offers";
 export const PUSH_CHANNEL_NAME = "Offers and reminders";
 
 // Appsy deletes a phone's notification address once the app hasn't been opened on it for
-// this long (Google's FCM expires such registrations after 270 days), or as soon as Google
-// says it no longer works (admin models/push.server.ts).
+// this long (Google's FCM expires such registrations after 270 days), or as soon as Google or
+// Apple says it no longer works (admin models/push.server.ts).
 export const PUSH_DEVICE_KEEP_DAYS = 270;
 
 export const PUSH_TITLE_MAX = 65;
 export const PUSH_BODY_MAX = 240;
-// How long Google keeps a campaign for a phone that's off or offline (FCM's `ttl`, whose own
-// default of 4 weeks is too long for an offer).
+// How long Google and Apple keep a campaign for a phone that's off or offline (FCM's `ttl`,
+// whose own default of 4 weeks is too long for an offer, and APNs' `apns-expiration`).
 export const PUSH_TTL_SECONDS = 2 * 24 * 60 * 60;
 // FCM refuses messages over 4096 bytes, keys and values included.
 export const FCM_MAX_BYTES = 4096;
+// APNs refuses payloads over 4 KB (4096 bytes) for notifications like these.
+export const APNS_MAX_BYTES = 4096;
 
 const pushTitle = z
   .string()
@@ -102,8 +105,9 @@ export const pushCampaignInput = z.object({
 export type PushCampaignInput = z.output<typeof pushCampaignInput>;
 
 // What a notification carries for the app: the campaign, so a tap is counted, and where the
-// tap goes; or `bag` for the bag reminder. FCM sends it as `data.body`, the key
-// expo-notifications reads a notification's data from.
+// tap goes; or `bag` for the bag reminder. It travels as `body`, the key expo-notifications
+// reads a notification's data from: FCM's `data.body` as JSON text, and on iPhones a
+// dictionary beside `aps`.
 export const pushData = z.object({
   campaign: z.uuid().optional(),
   link: linkValue.optional(),
@@ -140,32 +144,63 @@ export function fcmRequest(target: string, message: PushMessage) {
   };
 }
 
-// The part of a message that counts toward FCM's size limit, in UTF-8 bytes. (Counted by
-// hand: this package runs in phones and the admin alike, without TextEncoder's types.)
-export function pushMessageBytes(message: PushMessage): number {
-  const { notification, data } = fcmRequest("", message).message;
+// The payload for Apple's push service
+// (https://developer.apple.com/documentation/usernotifications/generating-a-remote-notification):
+// the alert and the system sound in `aps`, and the app's data beside it. iPhones show no
+// picture: that would need a notification service extension in the app.
+export function apnsPayload(message: PushMessage) {
+  return {
+    aps: { alert: { title: message.title, body: message.body }, sound: "default" },
+    body: message.data,
+  };
+}
+
+// Text's length in UTF-8 bytes. (Counted by hand: this package runs in phones and the admin
+// alike, without TextEncoder's types.)
+function utf8Bytes(text: string): number {
   let bytes = 0;
-  for (const character of JSON.stringify({ notification, data })) {
+  for (const character of text) {
     const code = character.codePointAt(0) ?? 0;
     bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
   }
   return bytes;
 }
 
+// The part of a message that counts toward FCM's size limit, in UTF-8 bytes.
+export function pushMessageBytes(message: PushMessage): number {
+  const { notification, data } = fcmRequest("", message).message;
+  return utf8Bytes(JSON.stringify({ notification, data }));
+}
+
+export function apnsPayloadBytes(message: PushMessage): number {
+  return utf8Bytes(JSON.stringify(apnsPayload(message)));
+}
+
 export function pushMessageFits(message: PushMessage): boolean {
   // Some room for what Google adds itself.
-  return pushMessageBytes(message) <= FCM_MAX_BYTES - 256;
+  return (
+    pushMessageBytes(message) <= FCM_MAX_BYTES - 256 &&
+    apnsPayloadBytes(message) <= APNS_MAX_BYTES
+  );
 }
 
 // What phones send to Appsy (the admin's routes/api.push.*): a phone that allowed
 // notifications, one that turned them off, and a tap on a campaign.
-export const pushDeviceInput = z.object({
-  // A random ID the app makes when the shopper allows notifications.
-  installId: z.uuid(),
-  token: z.string().min(1).max(4096),
-  platform: z.enum(["android", "ios"]),
-  country: countryCode.optional(),
-});
+export const pushDeviceInput = z
+  .object({
+    // A random ID the app makes when the shopper allows notifications.
+    installId: z.uuid(),
+    token: z.string().min(1).max(4096),
+    platform: z.enum(["android", "ios"]),
+    country: countryCode.optional(),
+  })
+  // An iPhone's address goes into the path Appsy sends to (`/3/device/<token>`), as the
+  // hexadecimal bytes of the token Apple gave the phone. Apple gives no fixed length, so only
+  // the characters are checked.
+  .refine((phone) => phone.platform !== "ios" || /^(?:[0-9a-f]{2}){8,512}$/i.test(phone.token), {
+    message: "An iPhone's notification address is hexadecimal.",
+    path: ["token"],
+  });
 export const pushForgetInput = z.object({ installId: z.uuid() });
 export const pushOpenedInput = z.object({ campaign: z.uuid() });
 export type PushDeviceInput = z.output<typeof pushDeviceInput>;
