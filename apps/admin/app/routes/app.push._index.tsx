@@ -13,6 +13,12 @@ import { authenticate } from "../shopify.server";
 import { ensureShopSetup } from "../models/shop.server";
 import { loadDesign } from "../models/design.server";
 import {
+  loadAutomations,
+  setAutomationEnabled,
+  syncLegacyBagReminder,
+  type AutomationRow,
+} from "../models/push-automations.server";
+import {
   cancelCampaign,
   loadCampaigns,
   loadPushKeys,
@@ -20,10 +26,12 @@ import {
   type CampaignStatus,
 } from "../models/push.server";
 
-// Push notifications: the campaigns the merchant sent or scheduled, how many phones each
-// reached, and how many shoppers opened the app from it (models/push.server.ts). New ones
-// are written on app.push.new.tsx; the switch, the keys (Firebase for Android phones, APNs
-// for iPhones) and the bag reminder are on the Functionality page.
+// Push notifications: the automatic notifications (templates and the merchant's own, with a
+// switch each; models/push-automations.server.ts, edited on app.push.automations.$id.tsx),
+// and the campaigns the merchant sent or scheduled, how many phones each reached, and how
+// many shoppers opened the app from it (models/push.server.ts). New campaigns are written on
+// app.push.new.tsx; the switch and the keys (Firebase for Android phones, APNs for iPhones)
+// are on the Functionality page.
 
 // While a campaign is going out, the page looks again this often.
 const REFRESH_MS = 10_000;
@@ -32,27 +40,44 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const shop = await ensureShopSetup(admin, session.shop);
   const appProjectId = shop.appProject.id;
-  const [design, keys, list] = await Promise.all([
+  const [design, keys, list, automations] = await Promise.all([
     loadDesign(appProjectId),
     loadPushKeys(appProjectId),
     loadCampaigns(appProjectId),
+    loadAutomations(appProjectId),
   ]);
   return {
     on: pushOn(design),
     keys: { android: keys.firebase !== null, ios: keys.apple !== null },
+    automations,
     ...list,
   };
 };
 
+// Cancelling a scheduled campaign ("cancel"), or switching an automatic notification on or
+// off ("automation" and "enabled").
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { admin, session, sessionToken } = await authenticate.admin(request);
   const shop = await ensureShopSetup(admin, session.shop);
   const form = await request.formData();
+  const automation = z.uuid().safeParse(form.get("automation"));
+  if (automation.success) {
+    const row = await setAutomationEnabled(
+      shop.appProject.id,
+      automation.data,
+      form.get("enabled") === "on",
+    );
+    if (row) {
+      await syncLegacyBagReminder(admin, shop, row, sessionToken?.sub ?? null);
+    }
+    return { canceled: false, switched: row ? row.enabled : null };
+  }
   const id = z.uuid().safeParse(form.get("cancel"));
   return {
     canceled: id.success
       ? await cancelCampaign(shop.appProject.id, id.data)
       : false,
+    switched: undefined,
   };
 };
 
@@ -75,7 +100,8 @@ const count = (number: number, one: string) =>
   `${number.toLocaleString("en")} ${one}${number === 1 ? "" : "s"}`;
 
 export default function PushNotificationsPage() {
-  const { on, keys, campaigns, phones } = useLoaderData<typeof loader>();
+  const { on, keys, automations, campaigns, phones } =
+    useLoaderData<typeof loader>();
   const { revalidate } = useRevalidator();
   const ready = keys.android || keys.ios;
   const sending = campaigns.some((campaign) => campaign.status === "sending");
@@ -114,6 +140,40 @@ export default function PushNotificationsPage() {
           </s-banner>
         )
       )}
+
+      <s-section heading="Automatic notifications">
+        <s-stack gap="base">
+          <s-paragraph color="subdued">
+            Sent by themselves when something happens in your app, with the
+            product&apos;s name, and its picture on Android phones. A phone gets
+            at most 2 a day, and none between 21:00 and 09:00 where it is. They
+            reach phones with your app&apos;s latest build.
+          </s-paragraph>
+          <s-table>
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Notification</s-table-header>
+              <s-table-header listSlot="secondary">Sends</s-table-header>
+              <s-table-header listSlot="labeled" format="numeric">
+                Reached
+              </s-table-header>
+              <s-table-header listSlot="labeled" format="numeric">
+                Opened
+              </s-table-header>
+              <s-table-header listSlot="inline">On</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
+              {automations.map((automation) => (
+                <AutomationLine key={automation.id} automation={automation} />
+              ))}
+            </s-table-body>
+          </s-table>
+          <s-stack direction="inline">
+            <s-button href="/app/push/automations/new">
+              Create automatic notification
+            </s-button>
+          </s-stack>
+        </s-stack>
+      </s-section>
 
       <s-section heading="Your notifications">
         <s-stack gap="base">
@@ -158,6 +218,70 @@ export default function PushNotificationsPage() {
   );
 }
 
+// One automatic notification: its name (a link to edit it), when it sends, its results and
+// its switch, which applies at once, as Polaris says switches should.
+function AutomationLine({ automation }: { automation: AutomationRow }) {
+  const shopify = useAppBridge();
+  const fetcher = useFetcher<typeof action>();
+  const [on, setOn] = useState(automation.enabled);
+  const busy = fetcher.state !== "idle";
+
+  useEffect(() => {
+    if (busy || !fetcher.data || fetcher.data.switched === undefined) return;
+    if (fetcher.data.switched === null) {
+      setOn(automation.enabled);
+      shopify.toast.show("That automatic notification no longer exists.", {
+        isError: true,
+      });
+      return;
+    }
+    shopify.toast.show(
+      fetcher.data.switched
+        ? `${automation.name} is on`
+        : `${automation.name} is off`,
+    );
+    // Only once per answer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, fetcher.data]);
+
+  return (
+    <s-table-row>
+      <s-table-cell>
+        <s-stack gap="small-200">
+          <s-link href={`/app/push/automations/${automation.id}`}>
+            {automation.name}
+          </s-link>
+          <s-text color="subdued">{automation.title}</s-text>
+          {automation.problem && (
+            <s-text tone="critical">{automation.problem}</s-text>
+          )}
+        </s-stack>
+      </s-table-cell>
+      <s-table-cell>{automation.when}</s-table-cell>
+      <s-table-cell>{automation.sent}</s-table-cell>
+      <s-table-cell>
+        {automation.sent > 0 ? automation.opened : "–"}
+      </s-table-cell>
+      <s-table-cell>
+        <s-switch
+          label={`${automation.name} on`}
+          labelAccessibilityVisibility="exclusive"
+          checked={on || undefined}
+          disabled={busy || undefined}
+          onChange={(event) => {
+            const next = event.currentTarget.checked;
+            setOn(next);
+            fetcher.submit(
+              { automation: automation.id, enabled: next ? "on" : "off" },
+              { method: "POST" },
+            );
+          }}
+        />
+      </s-table-cell>
+    </s-table-row>
+  );
+}
+
 function CampaignLine({ campaign }: { campaign: CampaignRow }) {
   const shopify = useAppBridge();
   const fetcher = useFetcher<typeof action>();
@@ -165,7 +289,7 @@ function CampaignLine({ campaign }: { campaign: CampaignRow }) {
   const status = STATUS[campaign.status];
 
   useEffect(() => {
-    if (busy || !fetcher.data) return;
+    if (busy || !fetcher.data || fetcher.data.switched !== undefined) return;
     shopify.toast.show(
       fetcher.data.canceled
         ? "Notification canceled"

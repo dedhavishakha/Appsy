@@ -1,11 +1,13 @@
 import type { ActionFunctionArgs } from "react-router";
 import { z } from "zod";
 import { pushOpenedInput } from "@appsy/app-config";
+import { countAutomationOpen } from "../models/push-automations.server";
 import { countOpen } from "../models/push.server";
 
-// POST /api/push/:appId/opened: a shopper opened the app from a campaign. Only the campaign
-// is sent, not the phone, so Appsy counts opens without knowing whose they are; a campaign
-// never counts more opens than phones it reached (models/push.server.ts).
+// POST /api/push/:appId/opened: a shopper opened the app from a campaign or an automatic
+// notification. Only which one is sent, not the phone, so Appsy counts opens without knowing
+// whose they are; none counts more opens than phones it reached (models/push.server.ts,
+// models/push-automations.server.ts).
 
 const MAX_BODY_BYTES = 1024;
 const appId = z.uuid();
@@ -31,6 +33,9 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const opened = pushOpenedInput.safeParse(body);
   if (!opened.success) return reply(400);
 
-  await countOpen(id.data, opened.data.campaign);
+  if (opened.data.campaign) await countOpen(id.data, opened.data.campaign);
+  if (opened.data.automation) {
+    await countAutomationOpen(id.data, opened.data.automation);
+  }
   return reply(204);
 };

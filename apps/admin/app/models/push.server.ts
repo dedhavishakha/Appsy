@@ -558,16 +558,17 @@ export async function sendTest(
 // stops sending to them.
 export type Outcome = "sent" | "gone" | "failed" | { stop: string };
 
-type Platform = "android" | "ios";
+export type Platform = "android" | "ios";
 
-type Sender = {
+export type Sender = {
   deliver(token: string, message: PushMessage): Promise<Outcome>;
   close(): void;
 };
 
 // A sender for each platform the app has a key for: Google's FCM for Android phones, Apple's
-// push service for iPhones, which also needs the App ID.
-function sendersFor(
+// push service for iPhones, which also needs the App ID. Automatic notifications use them too
+// (push-automations.server.ts).
+export function sendersFor(
   keys: StoreKeys | null,
   bundleId: string | null,
 ): Partial<Record<Platform, Sender>> {
@@ -825,8 +826,8 @@ const PHONES: Record<Platform, string> = {
   ios: "iPhones",
 };
 
-// Why some phones weren't sent the campaign, by platform.
-const notSent = (stopped: Partial<Record<Platform, string>>) =>
+// Why some phones weren't sent the campaign (or automatic notification), by platform.
+export const notSent = (stopped: Partial<Record<Platform, string>>) =>
   Object.entries(stopped)
     .map(
       ([platform, why]) =>

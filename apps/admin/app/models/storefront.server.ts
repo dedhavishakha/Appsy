@@ -8,14 +8,18 @@ export async function storefrontQuery<T>(
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<T> {
-  const response = await fetch(`https://${shopDomain}/api/${apiVersion}/graphql.json`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Storefront-Access-Token": token,
+  const response = await fetch(
+    `https://${shopDomain}/api/${apiVersion}/graphql.json`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Storefront-Access-Token": token,
+      },
+      body: JSON.stringify({ query, variables }),
+      signal: AbortSignal.timeout(20_000),
     },
-    body: JSON.stringify({ query, variables }),
-  });
+  );
   const json = (await response.json()) as { data?: T; errors?: unknown };
   if (!response.ok || json.errors || !json.data) {
     throw new Error(

@@ -84,16 +84,18 @@ export default function Privacy() {
           address (from Google&apos;s Firebase Cloud Messaging on Android
           phones, from the Apple Push Notification service on iPhones), a random
           install ID it creates and the country the shopper chose in the app, so
-          the store can send them offers and news. Turning notifications off
-          under Privacy choices deletes these from Appsy. Reminders about items
-          left in the bag are scheduled on the phone, and the bag isn&apos;t
-          sent to Appsy. Appsy counts how many people open each notification,
-          without recording who.
+          the store can send them offers and news. For reminders about the bag
+          and the wishlist, the app also sends the bag&apos;s ID at the store,
+          the products on the wishlist, with when each changed, and the
+          phone&apos;s time zone, so reminders don&apos;t arrive at night; Appsy
+          reads the bag from the store only to write a reminder. Turning
+          notifications off under Privacy choices deletes all of these from
+          Appsy. Appsy counts how many people open each notification, without
+          recording who.
         </li>
         <li>
-          The wishlist and the shopper&apos;s chosen currency stay on their
-          phone, and so does their chosen country unless they allow
-          notifications.
+          The shopper&apos;s chosen currency stays on their phone, and so do
+          their wishlist and chosen country unless they allow notifications.
         </li>
         <li>
           The bag and checkout are run by Shopify, under{" "}
@@ -153,10 +155,10 @@ export default function Privacy() {
           sooner when the shopper turns usage data off.
         </li>
         <li>
-          Notification addresses: until the shopper turns notifications off,
-          Google or Apple says the address no longer works, or the app
-          hasn&apos;t been opened on that phone for {PUSH_DEVICE_KEEP_DAYS}{" "}
-          days.
+          Notification addresses, with the bag and wishlist a phone shared:
+          until the shopper turns notifications off, Google or Apple says the
+          address no longer works, or the app hasn&apos;t been opened on that
+          phone for {PUSH_DEVICE_KEEP_DAYS} days.
         </li>
         <li>
           Store data: erased when Shopify asks us to, 48 hours after you

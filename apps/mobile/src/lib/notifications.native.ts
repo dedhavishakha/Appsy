@@ -6,8 +6,8 @@ import { PUSH_CHANNEL, PUSH_CHANNEL_NAME } from "@appsy/app-config";
 // The phone's side of push notifications (app-config push.ts), through expo-notifications.
 // An Android phone's notification address comes from Firebase Cloud Messaging, which only
 // builds made with the merchant's google-services.json have (app.config.js sets
-// extra.firebase); an iPhone's comes from Apple's push service. The bag reminder is a
-// notification the phone schedules for itself, so it needs neither.
+// extra.firebase); an iPhone's comes from Apple's push service. Bag and wishlist reminders
+// come from Appsy's server too (app-config push-automations.ts).
 
 export type NotificationPermission = { granted: boolean; canAskAgain: boolean };
 
@@ -88,25 +88,8 @@ export function onTap(listener: (data: unknown) => void): () => void {
   return () => subscription.remove();
 }
 
-// One reminder at a time: a new one replaces the last.
-export async function scheduleBagReminder(reminder: {
-  title: string;
-  body: string;
-  seconds: number;
-}): Promise<void> {
-  await Notifications.cancelScheduledNotificationAsync(BAG_REMINDER_ID);
-  await makeChannel();
-  await Notifications.scheduleNotificationAsync({
-    identifier: BAG_REMINDER_ID,
-    content: { title: reminder.title, body: reminder.body, data: { bag: true } },
-    trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds: reminder.seconds,
-      channelId: PUSH_CHANNEL,
-    },
-  });
-}
-
+// Builds from before 2026-11-02 scheduled their own bag reminder under this ID; Appsy's
+// server sends bag reminders now, so one still waiting on the phone is cancelled.
 export async function cancelBagReminder(): Promise<void> {
   await Notifications.cancelScheduledNotificationAsync(BAG_REMINDER_ID);
 }

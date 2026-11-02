@@ -3,13 +3,15 @@ import { useSettings } from "./app-settings";
 import type { Money } from "./format";
 import type { ProductCardData } from "./queries";
 
-// A saved product, with enough to draw it before fresh prices arrive (or offline).
+// A saved product, with enough to draw it before fresh prices arrive (or offline), and when
+// it was saved (for the wishlist reminder; none on products saved before 2026-11-02).
 export type WishlistItem = {
   id: string;
   handle: string;
   title: string;
   image: { url: string; altText: string | null } | null;
   price: Money;
+  savedAt?: string;
 };
 
 export type Wishlist = {

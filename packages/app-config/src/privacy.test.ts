@@ -48,12 +48,14 @@ describe("the section stores add to their privacy policy", () => {
     expect(text).not.toContain("notification address");
     const withPush = appPolicyText("Local noodle", { pushNotifications: true });
     expect(withPush).toContain("Notifications. The app asks before it sends you notifications.");
-    expect(withPush).toContain("your bag isn't sent to us");
+    expect(withPush).toContain("We read your bag from our store only to write a reminder.");
+    expect(withPush).toContain("the products on your wishlist, with when each changed");
+    expect(withPush).toContain("your phone's time zone, so reminders don't arrive at night");
     expect(withPush).toContain("usage data and notification addresses can be reached only");
     expect(withPush).toContain("270 days after the app was last opened on it");
     expect(withPush).toContain("Firebase Cloud Messaging on Android");
     expect(withPush).toContain("the Apple Push Notification service on iPhones");
-    expect(withPush).toContain("as soon as Google or Apple says it no longer works");
+    expect(withPush).toContain("as soon as Google or Apple says the address no longer works");
     expect(withPush).not.toMatch(/ {2}|\n{3}|^ | $/m);
   });
 });
@@ -105,8 +107,14 @@ describe("App Store answers", () => {
       "Developer's Advertising or Marketing",
     ]);
     expect(items.find((item) => item.type === "Coarse Location")).toMatchObject({
-      purposes: ["Developer's Advertising or Marketing"],
+      purposes: ["App Functionality", "Developer's Advertising or Marketing"],
     });
+    const purchases = items.find((item) => item.type === "Purchase History");
+    expect(purchases?.purposes).toEqual([
+      "App Functionality",
+      "Developer's Advertising or Marketing",
+    ]);
+    expect(purchases?.what).toContain("on their wishlist");
     expect(items.find((item) => item.type === "Product Interaction")?.what).toContain(
       "not linked to the phone",
     );
@@ -118,6 +126,7 @@ describe("App Store answers", () => {
     expect(types(items).indexOf("Location › Coarse Location")).toBe(5);
     expect(types(items).at(-1)).toBe("Diagnostics › Other Diagnostic Data");
     expect(items.find((item) => item.type === "Coarse Location")?.purposes).toEqual([
+      "App Functionality",
       "Analytics",
       "Developer's Advertising or Marketing",
     ]);
@@ -144,18 +153,32 @@ describe("Data safety answers", () => {
     ]);
   });
 
-  it("add notification purposes to device IDs when push notifications are on", () => {
+  it("add notification purposes, the bag and wishlist, and the time zone with push", () => {
     const items = dataSafetyItems({ pushNotifications: true });
-    expect(items.map((item) => item.type)).toEqual(DATA_SAFETY_ITEMS.map((item) => item.type));
+    expect(items.map((item) => item.type)).toEqual([
+      "Approximate location",
+      ...DATA_SAFETY_ITEMS.map((item) => item.type),
+    ]);
+    expect(items[0]).toMatchObject({ purposes: ["App functionality"], optional: true });
+    expect(items[0]?.what).toContain("time zone");
     const ids = items.find((item) => item.type === "Device or other IDs");
     expect(ids).toMatchObject({
       purposes: ["Analytics", "Developer communications", "Advertising or marketing"],
       optional: true,
     });
     expect(ids?.what).toContain("Firebase Cloud Messaging");
-    expect(items.find((item) => item.type === "App interactions")?.what).toContain(
-      "not linked to the phone",
-    );
+    const interactions = items.find((item) => item.type === "App interactions");
+    expect(interactions?.purposes).toEqual(["Analytics", "Advertising or marketing"]);
+    expect(interactions?.what).toContain("on their wishlist");
+    expect(interactions?.what).toContain("not linked to the phone");
+  });
+
+  it("join Google Analytics' and notifications' location in one row", () => {
+    const items = dataSafetyItems({ googleAnalytics: true, pushNotifications: true });
+    expect(items[0]).toMatchObject({
+      type: "Approximate location",
+      purposes: ["Analytics", "App functionality"],
+    });
   });
 
   it("list each data type once", () => {

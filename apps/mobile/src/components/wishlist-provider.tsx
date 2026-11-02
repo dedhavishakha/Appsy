@@ -40,7 +40,11 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
     (item: WishlistItem) => {
       const current = latest.current;
       const added = !current.some((saved) => saved.id === item.id);
-      update(added ? [item, ...current] : current.filter((saved) => saved.id !== item.id));
+      update(
+        added
+          ? [{ ...item, savedAt: new Date().toISOString() }, ...current]
+          : current.filter((saved) => saved.id !== item.id),
+      );
       return added;
     },
     [update],

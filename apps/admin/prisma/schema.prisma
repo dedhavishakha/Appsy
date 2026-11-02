@@ -122,6 +122,7 @@ model AppProject {
   builds          AppBuild[]
   pushDevices     PushDevice[]
   pushCampaigns   PushCampaign[]
+  pushAutomations PushAutomation[]
 }
 
 // A phone that allowed push notifications (models/push.server.ts): its notification address
@@ -142,11 +143,85 @@ model PushDevice {
   country      String?    @db.VarChar(2)
   createdAt    DateTime   @default(now())
   lastSeenAt   DateTime   @default(now())
+  // For automatic notifications (models/push-automations.server.ts), from app builds since
+  // 2026-11-02 (app-config pushStateInput): the shopper's bag at the store (Shopify's cart ID,
+  // null when empty) and when it last changed, and the phone's minutes ahead of UTC.
+  cartId       String?
+  bagChangedAt DateTime?
+  utcOffset    Int?
+  wishlist     PushWishlistItem[]
+  automationSends PushAutomationSend[]
 
   @@unique([appProjectId, installId])
   @@unique([appProjectId, token])
   @@index([appProjectId, testCode])
   @@index([lastSeenAt])
+  @@index([appProjectId, bagChangedAt])
+}
+
+// A product on a phone's wishlist, for the wishlist reminder (models/push-automations.server.ts):
+// when it was saved, unknown for products saved before 2026-11-02. Goes with the phone.
+model PushWishlistItem {
+  deviceId  String     @db.Uuid
+  device    PushDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  productId String
+  savedAt   DateTime?
+
+  @@id([deviceId, productId])
+  @@index([savedAt])
+}
+
+// An automatic notification of one store (models/push-automations.server.ts; app-config
+// push-automations.ts): one of Appsy's templates (`template`, made once per store) or one the
+// merchant made (`template` null). `kind` says when it sends, `delay` how long after.
+model PushAutomation {
+  id           String     @id @default(uuid()) @db.Uuid
+  appProjectId String     @db.Uuid
+  appProject   AppProject @relation(fields: [appProjectId], references: [id], onDelete: Cascade)
+  template     String?
+  kind         String
+  name         String
+  enabled      Boolean    @default(false)
+  // Only bags and wishlist products that change after it's switched on count.
+  enabledAt    DateTime?
+  delay        Int
+  title        String
+  body         String
+  // "product", "file" (image, a picture from Shopify Files, with the smaller copy phones
+  // download in imageUrl) or "none".
+  imageMode    String     @default("product")
+  image        Json?
+  imageUrl     String?
+  sent         Int        @default(0)
+  opened       Int        @default(0)
+  // Why sending stopped last, in the merchant's words; cleared when sending works again.
+  problem      String?
+  position     Int        @default(0)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  sends        PushAutomationSend[]
+
+  @@unique([appProjectId, template])
+  @@index([enabled])
+}
+
+// One automatic notification for one phone and one event (the bag's last change, or a
+// wishlist product and when it was saved), claimed before sending so each event sends at
+// most once, even with more than one server. Kept 60 days.
+model PushAutomationSend {
+  automationId String         @db.Uuid
+  automation   PushAutomation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  deviceId     String         @db.Uuid
+  device       PushDevice     @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  event        String
+  // "sending", "sent", "failed" or "skipped" (nothing to remind about, or the phone had
+  // enough for the day).
+  outcome      String
+  createdAt    DateTime       @default(now())
+
+  @@id([automationId, deviceId, event])
+  @@index([deviceId, createdAt])
+  @@index([createdAt])
 }
 
 // A campaign the merchant sent or scheduled on the Push notifications page. Status:
@@ -195,6 +270,10 @@ model AppBuild {
   // The App ID (package name / bundle ID) and design version it was built with.
   appId         String
   designVersion Int?
+  // What else it was built with, so Appsy can tell when the app needs a new build: the
+  // release of Appsy's app code and fingerprints of the app name and icon and the Firebase
+  // file (models/build-contents.server.ts). Null for builds before 2026-11-02.
+  contents      Json?
   easBuildId    String?    @unique
   appVersion    String?
   buildNumber   String?

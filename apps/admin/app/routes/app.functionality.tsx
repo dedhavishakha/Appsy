@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type {
   ActionFunctionArgs,
   HeadersFunction,
@@ -9,17 +9,11 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
   appCodeStart,
-  BAG_REMINDER_MAX_HOURS,
   GA4_FEATURE,
-  PUSH_BODY_MAX,
   PUSH_FEATURE,
-  PUSH_TITLE_MAX,
   pushOn,
-  pushSettings,
   savedCodeStart,
-  savedPushSettings,
   savedSizeChartSettings,
-  setPushSettings,
   setSizeChartSettings,
   shopifyGid,
   SIZE_CHART_FEATURE,
@@ -29,9 +23,7 @@ import {
   switchFeature,
   withoutSizeChart,
   type AppDesign,
-  type BagReminderSettings,
   type DesignIssue,
-  type PushSettings,
   type SizeChartMatch,
   type SizeChartRule,
   type SizeChartSettings,
@@ -80,10 +72,11 @@ import { storeAccountsSchema } from "../models/store-accounts";
 
 // Each change this page makes (see settingChange). "newCodeStart" gives the store a new
 // code start for app-only discount codes and keeps them on; "sizeChartSettings" says which
-// products use which size chart; "deleteSizeChart" deletes one and forgets it;
-// "pushSettings" holds the bag reminder. The file changes keep or remove the merchant's
-// Firebase files (google-services.json, GoogleService-Info.plist) and push notification
-// keys (Firebase, APNs), not the design.
+// products use which size chart; "deleteSizeChart" deletes one and forgets it. The file
+// changes keep or remove the merchant's Firebase files (google-services.json,
+// GoogleService-Info.plist) and push notification keys (Firebase, APNs), not the design.
+// The bag reminder became an automatic notification on the Push notifications page
+// (2026-11-02).
 const SETTINGS = [
   "appCodes",
   "sizeCharts",
@@ -94,7 +87,6 @@ const SETTINGS = [
   "newCodeStart",
   "sizeChartSettings",
   "deleteSizeChart",
-  "pushSettings",
   "uploadGoogleServices",
   "removeGoogleServices",
   "uploadGoogleServicesIos",
@@ -208,7 +200,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     firebase,
     firebaseIos,
     pushNotifications,
-    pushSettings: savedPushSettings(design),
     pushKeys,
     appleTeamId: (accounts.success && accounts.data.apple?.teamId) || null,
     appId: shop.appProject.androidPackage,
@@ -245,16 +236,6 @@ async function settingChange(
       return (design) => switchFeature(design, GA4_FEATURE, on);
     case "pushNotifications":
       return (design) => switchFeature(design, PUSH_FEATURE, on);
-    case "pushSettings": {
-      const settings = pushSettings.safeParse(parseJson(value));
-      if (!settings.success) {
-        return refused(
-          settings.error.issues[0]?.message ??
-            "Those bag reminder settings aren't valid.",
-        );
-      }
-      return (design) => setPushSettings(design, settings.data);
-    }
     case "currencyConversion":
       return (design) => ({
         ...design,
@@ -407,7 +388,6 @@ export default function Functionality() {
     firebase,
     firebaseIos,
     pushNotifications,
-    pushSettings: savedPush,
     pushKeys,
     appleTeamId,
     appId,
@@ -483,7 +463,6 @@ export default function Functionality() {
               firebase={firebase}
               keys={pushKeys ?? { firebase: null, apple: null }}
               appleTeamId={appleTeamId}
-              settings={savedPush}
               googleAnalytics={googleAnalytics}
             />
           )}
@@ -1059,21 +1038,19 @@ const FILE_NOTICES: Partial<Record<string, string>> = {
 // Push notifications (app-config push.ts; doc 03, section I): for Android phones, the app's
 // Firebase project (the google-services.json Google Analytics also uses) and the Firebase key
 // Appsy sends with; for iPhones, the APNs key from the merchant's Apple Developer account
-// (models/push.server.ts and apns.server.ts, keys kept in the vault); and the bag reminder,
-// which each phone schedules itself.
+// (models/push.server.ts and apns.server.ts, keys kept in the vault). Automatic
+// notifications, like the bag reminder, are on the Push notifications page.
 function PushNotifications({
   appId,
   firebase,
   keys,
   appleTeamId,
-  settings,
   googleAnalytics,
 }: {
   appId: string | null;
   firebase: FirebaseConnection | null;
   keys: PushKeys;
   appleTeamId: string | null;
-  settings: PushSettings;
   googleAnalytics: boolean;
 }) {
   const shopify = useAppBridge();
@@ -1228,7 +1205,11 @@ function PushNotifications({
       )}
 
       <s-divider />
-      <BagReminder settings={settings} />
+      <s-paragraph>
+        Automatic notifications, like the abandoned bag reminder, are on the{" "}
+        <s-link href="/app/push">Push notifications page</s-link>, where you
+        switch each on or off and change its words and picture.
+      </s-paragraph>
 
       <s-paragraph color="subdued">
         Your app asks shoppers the first time they add something to their bag,
@@ -1354,118 +1335,6 @@ function ApnsKey({
           {status ? "Replace key" : "Connect key"}
         </s-button>
       </s-stack>
-    </s-stack>
-  );
-}
-
-const BAG_REMINDER_SAVE_BAR = "bag-reminder-save-bar";
-
-// The reminder each phone schedules when its bag hasn't changed for a while, saved with
-// Shopify's save bar. It reaches phones with the live design, like the switches.
-function BagReminder({ settings }: { settings: PushSettings }) {
-  const shopify = useAppBridge();
-  const fetcher = useFetcher<typeof action>();
-  const [saved, setSaved] = useState(settings.bagReminder);
-  const [draft, setDraft] = useState(settings.bagReminder);
-  const pending = useRef<BagReminderSettings | null>(null);
-  const busy = fetcher.state !== "idle";
-  const issues = busy ? [] : (fetcher.data?.issues ?? []);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
-
-  useEffect(() => {
-    void (dirty
-      ? shopify.saveBar.show(BAG_REMINDER_SAVE_BAR)
-      : shopify.saveBar.hide(BAG_REMINDER_SAVE_BAR));
-  }, [dirty, shopify]);
-  useEffect(
-    () => () => void shopify.saveBar.hide(BAG_REMINDER_SAVE_BAR),
-    [shopify],
-  );
-
-  useEffect(() => {
-    if (fetcher.state !== "idle" || !fetcher.data || pending.current === null)
-      return;
-    if (fetcher.data.issues.length === 0) {
-      setSaved(pending.current);
-      shopify.toast.show(
-        fetcher.data.live
-          ? "Saved. Your app uses it now."
-          : "Saved. Your app gets it when you first publish its design.",
-      );
-    }
-    pending.current = null;
-  }, [fetcher.state, fetcher.data, shopify]);
-
-  const save = () => {
-    pending.current = draft;
-    fetcher.submit(
-      {
-        setting: "pushSettings",
-        value: JSON.stringify({ ...settings, bagReminder: draft }),
-      },
-      { method: "POST" },
-    );
-  };
-  const update = (change: Partial<BagReminderSettings>) =>
-    setDraft((current) => ({ ...current, ...change }));
-  const off = !draft.enabled || undefined;
-
-  return (
-    <s-stack gap="base">
-      {/* Discard asks first. */}
-      <ui-save-bar id={BAG_REMINDER_SAVE_BAR} discardConfirmation>
-        <button variant="primary" disabled={busy} onClick={save}>
-          Save
-        </button>
-        <button disabled={busy} onClick={() => setDraft(saved)}>
-          Discard
-        </button>
-      </ui-save-bar>
-      <s-heading>Bag reminder</s-heading>
-      <s-checkbox
-        label="Remind shoppers about items left in their bag"
-        details="Once, when their bag hasn't changed for the hours below. Each phone sets its own reminder, so shoppers' bags aren't sent to Appsy, and it works without your keys."
-        checked={draft.enabled || undefined}
-        onChange={(event) => update({ enabled: event.currentTarget.checked })}
-      />
-      <s-number-field
-        label="Hours after the bag last changed"
-        min={1}
-        max={BAG_REMINDER_MAX_HOURS}
-        step={1}
-        value={String(draft.hours)}
-        disabled={off}
-        onChange={(event) => {
-          const hours = Math.round(Number(event.currentTarget.value));
-          if (Number.isFinite(hours)) {
-            update({
-              hours: Math.min(Math.max(hours, 1), BAG_REMINDER_MAX_HOURS),
-            });
-          }
-        }}
-      />
-      <s-text-field
-        label="Title"
-        maxLength={PUSH_TITLE_MAX}
-        value={draft.title}
-        disabled={off}
-        onInput={(event) => update({ title: event.currentTarget.value })}
-      />
-      <s-text-area
-        label="Message"
-        maxLength={PUSH_BODY_MAX}
-        rows={2}
-        value={draft.body}
-        disabled={off}
-        onInput={(event) => update({ body: event.currentTarget.value })}
-      />
-      {issues.length > 0 && (
-        <s-banner tone="critical" heading="The bag reminder wasn't saved">
-          {issues.map((issue) => (
-            <s-paragraph key={issue.message}>{issue.message}</s-paragraph>
-          ))}
-        </s-banner>
-      )}
     </s-stack>
   );
 }

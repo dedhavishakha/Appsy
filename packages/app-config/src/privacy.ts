@@ -56,20 +56,24 @@ const GOOGLE_ANALYTICS_PARAGRAPH = [
   "account.",
 ];
 
-// What push notifications add (push.ts): the phone's notification address, from Google's
-// Firebase Cloud Messaging on Android and Apple's push service on iPhones, and a random ID,
-// only once the shopper allows notifications. Bag reminders are scheduled on the phone, and
-// taps are counted without saying whose.
+// What push notifications add (push.ts, push-automations.ts): the phone's notification
+// address, from Google's Firebase Cloud Messaging on Android and Apple's push service on
+// iPhones, a random ID, and for automatic reminders the bag (by its cart ID at the store) and
+// the wishlist products with when each changed, and the phone's time zone; only once the
+// shopper allows notifications. Taps are counted without saying whose.
 const PUSH_PARAGRAPH = [
   "Notifications. The app asks before it sends you notifications. If you allow them, the app",
   "sends us your phone's notification address, with a random ID the app creates and the",
   "country you shop in, so we can send you offers and news. The address comes from the",
   "service that delivers our notifications: Google's Firebase Cloud Messaging on Android",
-  "phones, and the Apple Push Notification service on iPhones. Reminders about items left in",
-  "your bag are set up on your phone: your bag isn't sent to us. We count how many people",
-  "open each notification, without recording who. You can turn notifications off at any time",
-  "under Privacy choices in the app's menu, which also deletes your phone's notification",
-  "address from our records, or in your phone's settings.",
+  "phones, and the Apple Push Notification service on iPhones. So we can remind you about",
+  "items in your bag or on your wishlist, the app also tells us your bag's ID at our store and",
+  "the products on your wishlist, with when each changed, and your phone's time zone, so",
+  "reminders don't arrive at night. We read your bag from our store only to write a reminder.",
+  "We count how many people open each notification, without recording who. You can turn",
+  "notifications off at any time under Privacy choices in the app's menu, which also deletes",
+  "your phone's notification address and what it told us about your bag and wishlist from our",
+  "records, or in your phone's settings.",
 ];
 
 // The section a store adds to its privacy policy, as plain text to paste into Shopify. It
@@ -124,8 +128,9 @@ export function appPolicyText(appName: string, options: PrivacyOptions = {}): st
       `${USAGE_DATA_KEEP_MONTHS} months after it's collected.`,
       ...(push
         ? [
-            "A phone's notification address is deleted as soon as Google or Apple says it no",
-            `longer works, or ${PUSH_DEVICE_KEEP_DAYS} days after the app was last opened on it.`,
+            "A phone's notification address, with what it told us about its bag and wishlist, is",
+            "deleted as soon as Google or Apple says the address no longer works, or",
+            `${PUSH_DEVICE_KEEP_DAYS} days after the app was last opened on it.`,
           ]
         : []),
     ],
@@ -173,10 +178,24 @@ const atCheckout = (category: string, type: string, what: string): DataSafetyIte
 
 // In the order Play Console lists them under Data types, so stores can tick them from the
 // top. Google Analytics adds a rough location and analytics uses (GOOGLE_ANALYTICS_PARAGRAPH);
-// push notifications add the notification address and their purposes (PUSH_PARAGRAPH).
+// push notifications add the notification address, the bag and wishlist for reminders and
+// the phone's time zone, which covers far more than Google's 3 square kilometres
+// (PUSH_PARAGRAPH).
 export function dataSafetyItems(options: PrivacyOptions = {}): DataSafetyItem[] {
   const ga4 = options.googleAnalytics === true;
   const push = options.pushNotifications === true;
+  const location = [
+    ...(ga4
+      ? [
+          "Worked out by Google Analytics from the phone's IP address, after the shopper allows usage data.",
+        ]
+      : []),
+    ...(push
+      ? [
+          "The phone's time zone, after the shopper allows notifications, so reminders don't arrive at night.",
+        ]
+      : []),
+  ];
   const ids = ga4
     ? "The random ID the app creates, and Google Analytics' ID for the app on the phone, after the shopper allows usage data. Not the advertising ID."
     : "The random ID the app creates when the shopper allows usage data.";
@@ -191,13 +210,16 @@ export function dataSafetyItems(options: PrivacyOptions = {}): DataSafetyItem[] 
       : "The bag and the order placed at checkout.",
   );
   return [
-    ...(ga4
+    ...(location.length > 0
       ? [
           {
             category: "Location",
             type: "Approximate location",
-            what: "Worked out by Google Analytics from the phone's IP address, after the shopper allows usage data.",
-            purposes: ["Analytics"] as DataSafetyPurpose[],
+            what: location.join(" "),
+            purposes: [
+              ...(ga4 ? ["Analytics" as const] : []),
+              ...(push ? ["App functionality" as const] : []),
+            ],
             optional: true,
           },
         ]
@@ -216,9 +238,9 @@ export function dataSafetyItems(options: PrivacyOptions = {}): DataSafetyItem[] 
       category: "App activity",
       type: "App interactions",
       what: push
-        ? `${usage} And, after the shopper allows notifications, a count of taps on each notification, not linked to the phone.`
+        ? `${usage} And, after the shopper allows notifications, what's in their bag (by its ID at the store) and on their wishlist, with when each changed, for reminders; and a count of taps on each notification, not linked to the phone.`
         : usage,
-      purposes: ["Analytics"],
+      purposes: push ? ["Analytics", "Advertising or marketing"] : ["Analytics"],
       optional: true,
     },
     {
@@ -279,7 +301,8 @@ const enteredAtCheckout = (category: string, type: string, what: string): AppPri
 // collected through web pages in an app. Google Analytics adds a
 // coarse location and Firebase's diagnostic data, which Firebase's own Apple privacy file
 // declares as not linked (FirebaseInstallations); push notifications add the phone's address
-// from Apple's push service and the country it's kept with.
+// from Apple's push service, the country and time zone it's kept with, and the bag and
+// wishlist for reminders (purchase tendencies, in Apple's words).
 export function appPrivacyItems(options: PrivacyOptions = {}): AppPrivacyItem[] {
   const ga4 = options.googleAnalytics === true;
   const push = options.pushNotifications === true;
@@ -297,7 +320,17 @@ export function appPrivacyItems(options: PrivacyOptions = {}): AppPrivacyItem[] 
       : []),
     ...(push
       ? [
-          "The country the shopper chose in the app, kept with their notification address after they allow notifications, to send offers to some countries.",
+          "The country the shopper chose in the app and the phone's time zone, kept with their notification address after they allow notifications, to send offers to some countries and no reminders at night.",
+        ]
+      : []),
+  ];
+  const purchases = [
+    ga4
+      ? "The bag and the order placed at checkout; orders also go to Google Analytics, after the shopper allows usage data."
+      : "The bag and the order placed at checkout.",
+    ...(push
+      ? [
+          "And, after the shopper allows notifications, what's in their bag (by its ID at the store) and on their wishlist, with when each changed, for reminders.",
         ]
       : []),
   ];
@@ -326,6 +359,7 @@ export function appPrivacyItems(options: PrivacyOptions = {}): AppPrivacyItem[] 
             type: "Coarse Location",
             what: location.join(" "),
             purposes: [
+              ...(push ? ["App Functionality" as const] : []),
               ...(ga4 ? ["Analytics" as const] : []),
               ...(push ? ["Developer's Advertising or Marketing" as const] : []),
             ],
@@ -354,10 +388,12 @@ export function appPrivacyItems(options: PrivacyOptions = {}): AppPrivacyItem[] 
     {
       category: "Purchases",
       type: "Purchase History",
-      what: ga4
-        ? "The bag and the order placed at checkout; orders also go to Google Analytics, after the shopper allows usage data."
-        : "The bag and the order placed at checkout.",
-      purposes: ga4 ? ["App Functionality", "Analytics"] : ["App Functionality"],
+      what: purchases.join(" "),
+      purposes: [
+        "App Functionality",
+        ...(ga4 ? ["Analytics" as const] : []),
+        ...(push ? ["Developer's Advertising or Marketing" as const] : []),
+      ],
       linked: true,
     },
     {

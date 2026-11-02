@@ -6,6 +6,7 @@ import {
   type BuildRow,
   type BuildStatus,
 } from "./builds";
+import { appRebuildReasons, buildContents } from "./build-contents.server";
 import { liveKey, loadStatus } from "./design.server";
 import { firebaseFileFor, firebaseIosFileFor } from "./google-analytics.server";
 import { identitySchema } from "./identity";
@@ -132,6 +133,7 @@ async function readiness(appProjectId: string) {
     appIds: { android: project.androidPackage, ios: project.iosBundleId },
     appName: project.appName,
     liveVersion: status.liveVersion,
+    identityFile,
   };
 }
 
@@ -163,6 +165,7 @@ export async function loadBuilds(appProjectId: string) {
   const [
     {
       readiness: { android, ios },
+      appIds,
     },
     builds,
   ] = await Promise.all([
@@ -173,7 +176,9 @@ export async function loadBuilds(appProjectId: string) {
       take: SHOWN_BUILDS,
     }),
   ]);
-  return { android, ios, builds: builds.map(toRow) };
+  // What each platform's last build lacks (build-contents.server.ts).
+  const rebuild = await appRebuildReasons(appProjectId, appIds);
+  return { android, ios, rebuild, builds: builds.map(toRow) };
 }
 
 // Starts a build for one platform. The page gets its answer at once; Expo takes the project
@@ -201,6 +206,12 @@ export async function startBuild(
     );
   }
 
+  // The merchant's Firebase file for this platform, when they gave one for this App ID
+  // (Google Analytics, Functionality page): the build includes Firebase only then.
+  const firebaseFile =
+    platform === "ios"
+      ? await firebaseIosFileFor(appProjectId, appId)
+      : await firebaseFileFor(appProjectId, appId);
   const build = await db.appBuild.create({
     data: {
       appProjectId,
@@ -208,17 +219,16 @@ export async function startBuild(
       status: "starting",
       appId,
       designVersion: ready.liveVersion,
+      contents: buildContents(ready.identityFile, firebaseFile),
       createdBy,
     },
   });
   keepChecking();
-  // The merchant's Firebase file for this platform, when they gave one for this App ID
-  // (Google Analytics, Functionality page): the build includes Firebase only then.
   const app: MerchantApp = {
     ...merchantApp(appProjectId, appId),
     ...(platform === "ios"
-      ? { googleServicesIos: await firebaseIosFileFor(appProjectId, appId) }
-      : { googleServices: await firebaseFileFor(appProjectId, appId) }),
+      ? { googleServicesIos: firebaseFile }
+      : { googleServices: firebaseFile }),
   };
   void begin(build.id, platform, app, appProjectId, ready.appName);
   return { issues: [], notice: "Build started" };

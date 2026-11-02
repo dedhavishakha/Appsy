@@ -23,6 +23,9 @@ const { join } = require("node:path");
 //   is "production".
 // No build uses the phone's advertising ID, so its permission is removed from every build.
 // Plain JavaScript, so it needs no Node.js type definitions in the app's TypeScript setup.
+// A change to the app's code that merchants should get (a feature, a fix they'd notice, a new
+// Apple or Google requirement) also needs an entry in packages/app-config/src/app-releases.ts,
+// so Appsy tells them their app needs a new build.
 
 /** Reads a JSON file next to this one, or null if it isn't there. */
 function readLocal(projectRoot, path) {

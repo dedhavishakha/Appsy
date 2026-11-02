@@ -92,10 +92,19 @@ const startedOn = (iso: string) =>
 type Props = {
   android: BuildReadiness;
   ios: BuildReadiness;
+  // What changed since each platform's last build (models/build-contents.server.ts).
+  rebuild: Record<Platform, string[]>;
   builds: BuildRow[];
 };
 
-export function AppBuilds({ android, ios, builds }: Props) {
+// How a new build reaches testers.
+const REBUILD_STEP: Record<Platform, string> = {
+  android:
+    "Click Build Android app below, then update the app on your phone from Google Play.",
+  ios: "Click Build iPhone app below. Testers get it in TestFlight once Apple has processed it.",
+};
+
+export function AppBuilds({ android, ios, rebuild, builds }: Props) {
   const fetcher = useFetcher<BuildResult>();
   const shopify = useAppBridge();
   const { revalidate } = useRevalidator();
@@ -133,8 +142,23 @@ export function AppBuilds({ android, ios, builds }: Props) {
     intent: BuildIntent,
   ) => {
     const ready = !readiness.unavailable && readiness.missing.length === 0;
+    const changes = rebuild[platform];
     return (
       <s-stack gap="small">
+        {!building(platform) && changes.length > 0 && (
+          <s-banner
+            tone="warning"
+            heading={`Build your ${PLATFORM_NAME[platform]} app again`}
+          >
+            <s-paragraph>Since its last build:</s-paragraph>
+            <s-unordered-list>
+              {changes.map((change) => (
+                <s-list-item key={change}>{change}</s-list-item>
+              ))}
+            </s-unordered-list>
+            <s-paragraph>{REBUILD_STEP[platform]}</s-paragraph>
+          </s-banner>
+        )}
         {!unavailable && readiness.missing.length > 0 && (
           <s-banner
             tone="info"

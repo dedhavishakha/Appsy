@@ -291,6 +291,7 @@ export default function Publishing() {
       <AppBuilds
         android={builds.android}
         ios={builds.ios}
+        rebuild={builds.rebuild}
         builds={builds.builds}
       />
 

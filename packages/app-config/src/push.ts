@@ -6,9 +6,10 @@ import { imageValue, linkValue } from "./inputs";
 // Push notifications (docs/03, section I; decided 2026-10-30). Merchants send campaigns from
 // Appsy's Push notifications page, straight to Google's Firebase Cloud Messaging (FCM) with
 // their own Firebase project's key for Android phones, and straight to Apple's push service
-// (APNs) with their own APNs key for iPhones (2026-10-31). Each phone schedules its own bag
-// reminder, so Appsy keeps no shoppers' bags. The app asks the first time the shopper adds to
-// their bag, and Privacy choices turns notifications off.
+// (APNs) with their own APNs key for iPhones (2026-10-31). Bag and wishlist reminders are
+// automatic notifications Appsy's server sends too (push-automations.ts, 2026-11-02); app
+// builds from before then schedule their own bag reminder (bagReminderSettings). The app asks
+// the first time the shopper adds to their bag, and Privacy choices turns notifications off.
 export const PUSH_FEATURE = "push-notifications";
 
 // The app's one Android notification channel. The app makes it before asking for permission,
@@ -32,18 +33,20 @@ export const FCM_MAX_BYTES = 4096;
 // APNs refuses payloads over 4 KB (4096 bytes) for notifications like these.
 export const APNS_MAX_BYTES = 4096;
 
-const pushTitle = z
+export const pushTitle = z
   .string()
   .trim()
   .min(1, "Add a title.")
   .max(PUSH_TITLE_MAX, `Keep the title to ${PUSH_TITLE_MAX} characters.`);
-const pushBody = z
+export const pushBody = z
   .string()
   .trim()
   .min(1, "Add a message.")
   .max(PUSH_BODY_MAX, `Keep the message to ${PUSH_BODY_MAX} characters.`);
 
-// The reminder a phone shows when its bag has waited this many hours since it last changed.
+// The reminder a phone shows when its bag has waited this many hours since it last changed:
+// app builds from before 2026-11-02 schedule it themselves. Appsy keeps it in step with the
+// store's "Abandoned bag" automatic notification (admin models/push-automations.server.ts).
 export const BAG_REMINDER_MAX_HOURS = 72;
 export const bagReminderSettings = z.object({
   enabled: z.boolean(),
@@ -104,12 +107,13 @@ export const pushCampaignInput = z.object({
 });
 export type PushCampaignInput = z.output<typeof pushCampaignInput>;
 
-// What a notification carries for the app: the campaign, so a tap is counted, and where the
-// tap goes; or `bag` for the bag reminder. It travels as `body`, the key expo-notifications
-// reads a notification's data from: FCM's `data.body` as JSON text, and on iPhones a
-// dictionary beside `aps`.
+// What a notification carries for the app: the campaign or automatic notification
+// (push-automations.ts), so a tap is counted, and where the tap goes: a link, or `bag` for
+// the bag. It travels as `body`, the key expo-notifications reads a notification's data from:
+// FCM's `data.body` as JSON text, and on iPhones a dictionary beside `aps`.
 export const pushData = z.object({
   campaign: z.uuid().optional(),
+  automation: z.uuid().optional(),
   link: linkValue.optional(),
   bag: z.literal(true).optional(),
 });
@@ -185,7 +189,8 @@ export function pushMessageFits(message: PushMessage): boolean {
 }
 
 // What phones send to Appsy (the admin's routes/api.push.*): a phone that allowed
-// notifications, one that turned them off, and a tap on a campaign.
+// notifications, one that turned them off, and a tap on a campaign or automatic notification
+// (what they share for automatic ones: push-automations.ts pushStateInput).
 export const pushDeviceInput = z
   .object({
     // A random ID the app makes when the shopper allows notifications.
@@ -202,7 +207,11 @@ export const pushDeviceInput = z
     path: ["token"],
   });
 export const pushForgetInput = z.object({ installId: z.uuid() });
-export const pushOpenedInput = z.object({ campaign: z.uuid() });
+export const pushOpenedInput = z
+  .object({ campaign: z.uuid().optional(), automation: z.uuid().optional() })
+  .refine((tap) => Boolean(tap.campaign) !== Boolean(tap.automation), {
+    message: "A tap is on one campaign or one automatic notification.",
+  });
 export type PushDeviceInput = z.output<typeof pushDeviceInput>;
 
 // A short code for one phone, shown under Privacy choices, so store staff can send a test to

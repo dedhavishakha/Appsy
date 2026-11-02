@@ -16,6 +16,7 @@ import {
 } from "../components/metrics-card";
 import { authenticate } from "../shopify.server";
 import { hasOrdersAccess, loadReport } from "../models/analytics.server";
+import { appRebuildReasons } from "../models/build-contents.server";
 import { ensureShopSetup } from "../models/shop.server";
 import {
   connectChannel,
@@ -32,17 +33,32 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session, scopes } = await authenticate.admin(request);
   const shop = await ensureShopSetup(admin, session.shop);
   const ordersAccess = await hasOrdersAccess(scopes);
-  const [channel, week] = await Promise.all([
+  const [channel, week, rebuild] = await Promise.all([
     loadChannel(admin, shop),
     // The page still loads if the numbers can't be read.
     loadReport(admin, shop.appProject.id, 7, ordersAccess).catch((error) => {
       console.error(`Analytics for ${session.shop}:`, error);
       return null;
     }),
+    // What each platform's last build lacks; nothing if that can't be worked out.
+    appRebuildReasons(shop.appProject.id, {
+      android: shop.appProject.androidPackage,
+      ios: shop.appProject.iosBundleId,
+    }).catch((error) => {
+      console.error(`Build check for ${session.shop}:`, error);
+      return { android: [], ios: [] };
+    }),
   ]);
 
-  return { channel, week, androidPackage: shop.appProject.androidPackage };
+  return {
+    channel,
+    week,
+    rebuild,
+    androidPackage: shop.appProject.androidPackage,
+  };
 };
+
+const APP_NAMES = { android: "Android app", ios: "iPhone app" } as const;
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -70,7 +86,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Home() {
-  const { channel, week, androidPackage } = useLoaderData<typeof loader>();
+  const { channel, week, rebuild, androidPackage } =
+    useLoaderData<typeof loader>();
+  const outdated = (["android", "ios"] as const).filter(
+    (platform) => rebuild[platform].length > 0,
+  );
   const fetcher = useFetcher<typeof action>();
   const shopify = useAppBridge();
 
@@ -124,6 +144,25 @@ export default function Home() {
           <s-paragraph>
             Connect Appsy below so your products can appear in your mobile app.
           </s-paragraph>
+        </s-banner>
+      )}
+
+      {/* Changes that reach phones only with a new build (models/build-contents.server.ts). */}
+      {outdated.length > 0 && (
+        <s-banner tone="warning" heading="Your app needs a new build">
+          {outdated.map((platform) => (
+            <s-stack key={platform} gap="small-200">
+              <s-paragraph>{`${APP_NAMES[platform]}, since its last build:`}</s-paragraph>
+              <s-unordered-list>
+                {rebuild[platform].map((change) => (
+                  <s-list-item key={change}>{change}</s-list-item>
+                ))}
+              </s-unordered-list>
+            </s-stack>
+          ))}
+          <s-button slot="secondary-actions" href="/app/publishing">
+            Go to Publishing
+          </s-button>
         </s-banner>
       )}
 

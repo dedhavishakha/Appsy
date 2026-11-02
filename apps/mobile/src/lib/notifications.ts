@@ -29,10 +29,4 @@ export function onTap(_listener: (data: unknown) => void): () => void {
   return () => {};
 }
 
-export async function scheduleBagReminder(_reminder: {
-  title: string;
-  body: string;
-  seconds: number;
-}): Promise<void> {}
-
 export async function cancelBagReminder(): Promise<void> {}
