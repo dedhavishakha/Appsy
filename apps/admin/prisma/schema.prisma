@@ -123,6 +123,7 @@ model AppProject {
   pushDevices     PushDevice[]
   pushCampaigns   PushCampaign[]
   pushAutomations PushAutomation[]
+  accountDeletions AccountDeletion[]
 }
 
 // A phone that allowed push notifications (models/push.server.ts): its notification address
@@ -222,6 +223,23 @@ model PushAutomationSend {
   @@id([automationId, deviceId, event])
   @@index([deviceId, createdAt])
   @@index([createdAt])
+}
+
+// A shopper's request, from the app's Account tab, to delete their account
+// (models/account-deletion.server.ts): Appsy asked Shopify to erase the customer. Kept until
+// Shopify's customers/redact webhook says the customer is erased, to tell the phone that
+// asked (`installId`, when it has notifications on), and 60 days at most.
+model AccountDeletion {
+  id           String     @id @default(uuid()) @db.Uuid
+  appProjectId String     @db.Uuid
+  appProject   AppProject @relation(fields: [appProjectId], references: [id], onDelete: Cascade)
+  // The Shopify customer, gid://shopify/Customer/<number>.
+  customerId   String
+  installId    String?    @db.Uuid
+  requestedAt  DateTime   @default(now())
+
+  @@index([appProjectId, customerId])
+  @@index([requestedAt])
 }
 
 // A campaign the merchant sent or scheduled on the Push notifications page. Status:

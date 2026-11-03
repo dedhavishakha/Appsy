@@ -16,7 +16,8 @@ const shopSchema = z.object({
 
 const linksSchema = z.object({
   privacyPolicy: httpsUrl,
-  // Present once shoppers can sign in (account feature, Phase 3): Apple 5.1.1(v).
+  // Where a signed-in shopper asks, in the app, for their account to be deleted (accounts.ts;
+  // Apple 5.1.1(v)). Files published before shopper accounts have none.
   accountDeletion: httpsUrl.optional(),
   // Where the app sends usage events once the shopper allows it (analytics.ts). Files
   // published before analytics, and the editor's preview, have none, so nothing is sent.

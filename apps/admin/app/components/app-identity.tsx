@@ -11,6 +11,7 @@ import {
   type IdentityIssue,
   type IdentitySettings,
 } from "../models/identity";
+import { SaveBar } from "./save-bar";
 import { ImagePicker } from "./setting-control";
 import { ColorSetting } from "./theme-settings";
 import { usePickImage } from "./use-pick-image";
@@ -54,15 +55,8 @@ export function AppIdentity({
     issues.find((issue) => issue.field === field)?.message;
   const general = issues.filter((issue) => issue.field === null);
 
-  // Shopify's save bar shows while the choices differ from the saved ones (Save Bar API,
-  // programmatic), and goes with the page.
-  useEffect(() => {
-    void (dirty
-      ? shopify.saveBar.show(SAVE_BAR_ID)
-      : shopify.saveBar.hide(SAVE_BAR_ID));
-  }, [dirty, shopify]);
-  useEffect(() => () => void shopify.saveBar.hide(SAVE_BAR_ID), [shopify]);
-
+  // Shopify's save bar shows while the choices differ from the saved ones, and goes with
+  // the page (save-bar.tsx).
   useEffect(() => {
     if (
       fetcher.state !== "idle" ||
@@ -102,15 +96,13 @@ export function AppIdentity({
 
   return (
     <s-section heading="App name and icon">
-      {/* Discard asks first. */}
-      <ui-save-bar id={SAVE_BAR_ID} discardConfirmation>
-        <button variant="primary" disabled={busy} onClick={save}>
-          Save
-        </button>
-        <button disabled={busy} onClick={discard}>
-          Discard
-        </button>
-      </ui-save-bar>
+      <SaveBar
+        id={SAVE_BAR_ID}
+        dirty={dirty}
+        busy={busy}
+        onSave={save}
+        onDiscard={discard}
+      />
       <s-stack gap="base">
         <s-paragraph color="subdued">
           These reach your app with its next build. Design changes you publish

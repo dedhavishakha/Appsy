@@ -35,6 +35,15 @@ export function DraftNotice() {
   );
 }
 
+// A plain page of text in the legal pages' style, such as an app's account deletion page.
+export function PublicArticle({ children }: { children: ReactNode }) {
+  return (
+    <PublicPage>
+      <article className={styles.legal}>{children}</article>
+    </PublicPage>
+  );
+}
+
 // A legal document: title, date of this version, then its sections.
 export function LegalDocument({
   title,

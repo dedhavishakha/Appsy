@@ -34,15 +34,16 @@ export default function CartScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const { data: cart, isLoading } = useCart();
-  const { setQuantity } = useCartActions();
+  const { setQuantity, forCheckout } = useCartActions();
   const codeStart = useCodeStart();
   const { track, trackGa4 } = useAnalytics();
   const { orderPlaced } = usePush();
   const [opening, setOpening] = useState(false);
 
   // Shopify's own checkout, with Checkout Kit in phone builds and the in-app browser
-  // elsewhere (lib/checkout). Google Analytics gets the bag as it goes to checkout, and the
-  // order when Checkout Kit says one was placed.
+  // elsewhere (lib/checkout), signed in when the shopper is (lib/cart forCheckout). Google
+  // Analytics gets the bag as it goes to checkout, and the order when Checkout Kit says one
+  // was placed.
   const checkout = async () => {
     if (!cart) return;
     track("checkout_started", { items: cart.totalQuantity });
@@ -53,7 +54,7 @@ export default function CartScreen() {
     trackGa4(ga4BeginCheckout(currency, items, coupon));
     setOpening(true);
     try {
-      await openCheckout(cart, (order) => {
+      await openCheckout(await forCheckout(cart), (order) => {
         // The bag was bought, so its reminder goes.
         orderPlaced();
         trackGa4(

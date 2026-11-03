@@ -270,10 +270,11 @@ export function PushProvider({ children }: { children: ReactNode }) {
       on,
       setOn: (want: boolean) => void setOn(want),
       testCode,
+      installId: on ? installId : null,
       afterAddToBag,
       orderPlaced,
     }),
-    [offered, on, setOn, testCode, afterAddToBag, orderPlaced],
+    [offered, on, setOn, testCode, installId, afterAddToBag, orderPlaced],
   );
 
   return (

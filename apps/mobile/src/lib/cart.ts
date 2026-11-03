@@ -7,6 +7,7 @@ import {
   withoutCodeStart,
   type PublishedSettings,
 } from "@appsy/app-config";
+import { useAccount } from "./account";
 import { ga4Line, useAnalytics, visitorConsent } from "./analytics";
 import { useSettings } from "./app-settings";
 import { useCountry } from "./country";
@@ -53,14 +54,18 @@ export function useCodeStart(): string | null {
   return appCodeStart(useSettings());
 }
 
-export function useCartActions() {
+// Shopify refused the signed-in shopper's token (it ended): the bag carries on as a guest's.
+const refusesToken = (payload: CartPayload) =>
+  payload.userErrors.some((error) => error.field?.includes("customerAccessToken"));
+
+// What every change to the bag shares: saving the cart Shopify returns, starting a new cart,
+// and saying who the bag belongs to.
+function useCartWriter() {
   const settings = useSettings();
   const { shop } = settings;
-  const start = appCodeStart(settings);
   const queryClient = useQueryClient();
   const { country } = useCountry();
-  const { consent, track, trackGa4 } = useAnalytics();
-  const { afterAddToBag } = usePush();
+  const { consent } = useAnalytics();
 
   const commit = async (payload: CartPayload) => {
     const problem = payload.userErrors[0]?.message;
@@ -70,20 +75,92 @@ export function useCartActions() {
     return payload.cart;
   };
 
-  // A new cart for the shopper's country, credited to Appsy's channel (spike S2).
-  const startCart = async (input: Record<string, unknown>) => {
-    const { cartCreate } = await storefront<{ cartCreate: CartPayload }>(shop, CART_CREATE_MUTATION, {
-      country,
-      consent: visitorConsent(consent),
-      input: {
-        ...input,
-        buyerIdentity: { countryCode: country },
-        ...(shop.channelHandle ? { sourceName: `channel:${shop.channelHandle}` } : {}),
-      },
-    });
-    return cartCreate;
+  // A new cart for the shopper's country, credited to Appsy's channel (spike S2), and theirs
+  // when they're signed in (`token`). A token Shopify refuses doesn't stop the bag.
+  const startCart = async (input: Record<string, unknown>, token: string | null = null) => {
+    const create = async (customerAccessToken: string | null) => {
+      const { cartCreate } = await storefront<{ cartCreate: CartPayload }>(
+        shop,
+        CART_CREATE_MUTATION,
+        {
+          country,
+          consent: visitorConsent(consent),
+          input: {
+            ...input,
+            buyerIdentity: {
+              countryCode: country,
+              ...(customerAccessToken ? { customerAccessToken } : {}),
+            },
+            ...(shop.channelHandle ? { sourceName: `channel:${shop.channelHandle}` } : {}),
+          },
+        },
+      );
+      return cartCreate;
+    };
+    const payload = await create(token);
+    return token && refusesToken(payload) ? create(null) : payload;
   };
-  const createCart = async (input: Record<string, unknown>) => commit(await startCart(input));
+
+  // Sets the bag's buyer: the shopper's country, and their token while signed in.
+  const setBuyer = async (cartId: string, token: string | null) => {
+    const { cartBuyerIdentityUpdate } = await storefront<{ cartBuyerIdentityUpdate: CartPayload }>(
+      shop,
+      CART_BUYER_IDENTITY_MUTATION,
+      {
+        cartId,
+        buyerIdentity: { countryCode: country, ...(token ? { customerAccessToken: token } : {}) },
+        country,
+      },
+    );
+    return cartBuyerIdentityUpdate;
+  };
+
+  return { settings, shop, country, queryClient, commit, startCart, setBuyer };
+}
+
+// The bag when the shopper signs in or out (components/account-provider.tsx). Signing in
+// makes it theirs, with their prices and discounts. Signing out moves its items and codes to a
+// new bag of no one's: Shopify asks apps to clear signed-in bags on sign-out (Checkout Kit's
+// guide, https://shopify.dev/docs/storefronts/mobile/checkout-kit/authenticate-checkouts).
+export function useBagOwner() {
+  const { settings, country, queryClient, commit, startCart, setBuyer } = useCartWriter();
+
+  const attach = async (token: string) => {
+    const cartId = await AsyncStorage.getItem(CART_ID_KEY);
+    if (!cartId) return;
+    const payload = await setBuyer(cartId, token);
+    if (payload.cart && !refusesToken(payload)) await commit(payload);
+  };
+
+  const detach = async () => {
+    const current = await queryClient.query({
+      queryKey: CART_KEY,
+      queryFn: () => loadCart(settings, country),
+    });
+    await AsyncStorage.removeItem(CART_ID_KEY);
+    queryClient.setQueryData(CART_KEY, null);
+    const lines = (current?.lines.nodes ?? []).map((line) => ({
+      merchandiseId: line.merchandise.id,
+      quantity: line.quantity,
+    }));
+    if (!current || lines.length === 0) return;
+    await commit(
+      await startCart({ lines, discountCodes: current.discountCodes.map((entry) => entry.code) }),
+    );
+  };
+
+  return { attach, detach };
+}
+
+export function useCartActions() {
+  const { settings, shop, country, queryClient, commit, startCart, setBuyer } = useCartWriter();
+  const start = appCodeStart(settings);
+  const { track, trackGa4 } = useAnalytics();
+  const { afterAddToBag } = usePush();
+  const account = useAccount();
+
+  const createCart = async (input: Record<string, unknown>) =>
+    commit(await startCart(input, await account.accessToken()));
 
   const updateCodes = (cartId: string, discountCodes: string[]) =>
     storefront<{ cartDiscountCodesUpdate: CartPayload }>(shop, CART_DISCOUNT_CODES_MUTATION, {
@@ -149,7 +226,9 @@ export function useCartActions() {
       .map((entry) => entry.code)
       .filter((entry) => !tries.some((code) => sameCode(code, entry)));
     const updated = cart ? await updateCodes(cart.id, wanted ? [...others, wanted] : others) : null;
-    const payload = updated?.cart ? updated : await startCart({ discountCodes: wanted ? [wanted] : [] });
+    const payload = updated?.cart
+      ? updated
+      : await startCart({ discountCodes: wanted ? [wanted] : [] }, await account.accessToken());
     const missing = payload.warnings?.some((warning) => warning.code === "DISCOUNT_NOT_FOUND") ?? false;
     return { cart: await commit(payload), missing };
   };
@@ -209,19 +288,41 @@ export function useCartActions() {
   });
 
   // After the shopper picks another country: the bag moves there, so its prices, currency
-  // and checkout follow that market.
+  // and checkout follow that market. A signed-in shopper's bag stays theirs.
   const moveToCountry = useMutation({
     mutationFn: async (code: string) => {
       const current = queryClient.getQueryData<Cart | null>(CART_KEY);
       if (!current) return null;
-      const { cartBuyerIdentityUpdate } = await storefront<{ cartBuyerIdentityUpdate: CartPayload }>(
-        shop,
-        CART_BUYER_IDENTITY_MUTATION,
-        { cartId: current.id, buyerIdentity: { countryCode: code }, country: code },
-      );
-      return commit(cartBuyerIdentityUpdate);
+      const move = async (token: string | null) => {
+        const { cartBuyerIdentityUpdate } = await storefront<{
+          cartBuyerIdentityUpdate: CartPayload;
+        }>(shop, CART_BUYER_IDENTITY_MUTATION, {
+          cartId: current.id,
+          buyerIdentity: { countryCode: code, ...(token ? { customerAccessToken: token } : {}) },
+          country: code,
+        });
+        return cartBuyerIdentityUpdate;
+      };
+      const token = await account.accessToken();
+      const payload = await move(token);
+      return commit(token && refusesToken(payload) ? await move(null) : payload);
     },
   });
 
-  return { add, setQuantity, applyCode, removeCode, moveToCountry };
+  // The bag as it goes to checkout. A signed-in shopper's bag first gets their current token:
+  // Shopify's signed-in checkout addresses expire, an expired one checks out as a guest, and a
+  // renewed token goes on the bag again (Checkout Kit's and the Customer Account API's
+  // checkout guides). The bag Shopify returns has a fresh address, used at once.
+  const forCheckout = async (cart: Cart): Promise<Cart> => {
+    const token = await account.accessToken();
+    if (!token) return cart;
+    try {
+      const payload = await setBuyer(cart.id, token);
+      return payload.cart && !refusesToken(payload) ? await commit(payload) : cart;
+    } catch {
+      return cart;
+    }
+  };
+
+  return { add, setQuantity, applyCode, removeCode, moveToCountry, forCheckout };
 }

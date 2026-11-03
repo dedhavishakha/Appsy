@@ -8,14 +8,20 @@ import { useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
+  ACCOUNT_FEATURE,
+  accountCallbackUrl,
   appCodeStart,
+  customerAccountClientId,
   GA4_FEATURE,
   PUSH_FEATURE,
   pushOn,
+  savedAccountSettings,
   savedCodeStart,
   savedSizeChartSettings,
+  setAccountClientId,
   setSizeChartSettings,
   shopifyGid,
+  shopNumber,
   SIZE_CHART_FEATURE,
   SIZE_CHART_MATCHES,
   sizeChartSettings,
@@ -31,6 +37,18 @@ import {
 import { authenticate } from "../shopify.server";
 import { ensureShopSetup } from "../models/shop.server";
 import { applySetting, loadDesign } from "../models/design.server";
+import {
+  customerAccountsVersion,
+  hasErasureAccess,
+  socialLoginProviders,
+} from "../models/accounts.server";
+import {
+  ERASURE_SCOPE,
+  iphoneBlockingSignIns,
+  SIGN_IN_SETTINGS,
+  signInOptionKind,
+  type CustomerAccountsVersion,
+} from "../models/accounts";
 import { storefrontQuery } from "../models/storefront.server";
 import {
   hasDiscountsAccess,
@@ -72,8 +90,9 @@ import { storeAccountsSchema } from "../models/store-accounts";
 
 // Each change this page makes (see settingChange). "newCodeStart" gives the store a new
 // code start for app-only discount codes and keeps them on; "sizeChartSettings" says which
-// products use which size chart; "deleteSizeChart" deletes one and forgets it. The file
-// changes keep or remove the merchant's Firebase files (google-services.json,
+// products use which size chart; "deleteSizeChart" deletes one and forgets it;
+// "accountClientId" saves the store's Customer Account API client for shopper accounts. The
+// file changes keep or remove the merchant's Firebase files (google-services.json,
 // GoogleService-Info.plist) and push notification keys (Firebase, APNs), not the design.
 // The bag reminder became an automatic notification on the Push notifications page
 // (2026-11-02).
@@ -82,11 +101,13 @@ const SETTINGS = [
   "sizeCharts",
   "googleAnalytics",
   "pushNotifications",
+  "accounts",
   "currencyConversion",
   "wishlist",
   "newCodeStart",
   "sizeChartSettings",
   "deleteSizeChart",
+  "accountClientId",
   "uploadGoogleServices",
   "removeGoogleServices",
   "uploadGoogleServicesIos",
@@ -177,13 +198,24 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const googleAnalytics = design.features[GA4_FEATURE]?.enabled === true;
   const pushNotifications = pushOn(design);
   // Google Analytics and Android push notifications share the app's Firebase project.
-  const [firebase, firebaseIos, pushKeys] = await Promise.all([
+  const [
+    firebase,
+    firebaseIos,
+    pushKeys,
+    accountsVersion,
+    erasureAccess,
+    socialLogins,
+  ] = await Promise.all([
     googleAnalytics || pushNotifications
       ? loadFirebase(shop.appProject.id)
       : null,
     googleAnalytics ? loadFirebaseIos(shop.appProject.id) : null,
     pushNotifications ? loadPushKeys(shop.appProject.id) : null,
+    customerAccountsVersion(admin),
+    hasErasureAccess(scopes),
+    socialLoginProviders(shop),
   ]);
+  const shopId = shopNumber(shop.shopGid);
   // An APNs key belongs to the Apple team of the store's App Store account.
   const accounts = storeAccountsSchema.safeParse(
     shop.appProject.storeAccounts ?? {},
@@ -203,6 +235,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     pushKeys,
     appleTeamId: (accounts.success && accounts.data.apple?.teamId) || null,
     appId: shop.appProject.androidPackage,
+    shopperAccounts: {
+      on: design.features[ACCOUNT_FEATURE]?.enabled === true,
+      clientId: savedAccountSettings(design).clientId ?? null,
+      callbackUrl: shopId ? accountCallbackUrl(shopId) : null,
+      version: accountsVersion,
+      erasureAccess,
+      socialLogins: socialLogins ?? [],
+    },
     currencyConversion: design.markets.displayCurrencyConversion,
     wishlist: design.features.wishlist?.enabled === true,
     countries: markets?.localization.availableCountries ?? [],
@@ -229,6 +269,7 @@ async function settingChange(
   value: string,
   appProjectId: string,
   admin: Parameters<typeof deleteSizeChart>[0],
+  scopes: Parameters<typeof hasErasureAccess>[0],
 ): Promise<((design: AppDesign) => AppDesign) | { issues: DesignIssue[] }> {
   const on = value === "on";
   switch (setting) {
@@ -236,6 +277,34 @@ async function settingChange(
       return (design) => switchFeature(design, GA4_FEATURE, on);
     case "pushNotifications":
       return (design) => switchFeature(design, PUSH_FEATURE, on);
+    // On only with everything shoppers need: the store's client, Shopify's customer accounts,
+    // and deleting accounts in the app (Apple 5.1.1(v), Google Play's account deletion rule).
+    case "accounts": {
+      if (!on) return (design) => switchFeature(design, ACCOUNT_FEATURE, false);
+      if (!savedAccountSettings(await loadDesign(appProjectId)).clientId) {
+        return refused("Save your storefront's Client ID first.");
+      }
+      if ((await customerAccountsVersion(admin)) === "CLASSIC") {
+        return refused(
+          "Your store uses legacy customer accounts. Choose customer accounts in Shopify first (step 1).",
+        );
+      }
+      if (!(await hasErasureAccess(scopes))) {
+        return refused(
+          "Allow Appsy to erase shoppers' data first, so shoppers can delete their accounts in your app.",
+        );
+      }
+      return (design) => switchFeature(design, ACCOUNT_FEATURE, true);
+    }
+    case "accountClientId": {
+      const clientId = customerAccountClientId.safeParse(value);
+      if (!clientId.success) {
+        return refused(
+          clientId.error.issues[0]?.message ?? "That Client ID isn't valid.",
+        );
+      }
+      return (design) => setAccountClientId(design, clientId.data);
+    }
     case "currencyConversion":
       return (design) => ({
         ...design,
@@ -285,7 +354,8 @@ type ActionResult = {
 export const action = async ({
   request,
 }: ActionFunctionArgs): Promise<ActionResult> => {
-  const { admin, session, sessionToken } = await authenticate.admin(request);
+  const { admin, session, sessionToken, scopes } =
+    await authenticate.admin(request);
   const shop = await ensureShopSetup(admin, session.shop);
   const form = await request.formData();
   const setting = String(form.get("setting"));
@@ -353,6 +423,7 @@ export const action = async ({
     value,
     shop.appProject.id,
     admin,
+    scopes,
   );
   if ("issues" in change) {
     return { setting, issues: change.issues, live: false, on };
@@ -391,6 +462,7 @@ export default function Functionality() {
     pushKeys,
     appleTeamId,
     appId,
+    shopperAccounts,
     currencyConversion,
     wishlist,
     countries,
@@ -469,6 +541,17 @@ export default function Functionality() {
         </SettingSwitch>
       </s-section>
 
+      <s-section heading="Shopper accounts">
+        <SettingSwitch
+          setting="accounts"
+          label="Shopper accounts"
+          details="Shoppers sign in with your store's Shopify customer account, and see their orders, addresses and profile in an Account tab. Checkout knows who they are."
+          checked={shopperAccounts.on}
+        >
+          <ShopperAccounts {...shopperAccounts} />
+        </SettingSwitch>
+      </s-section>
+
       <s-section heading="Wishlist">
         <SettingSwitch
           setting="wishlist"
@@ -477,9 +560,7 @@ export default function Functionality() {
           checked={wishlist}
         >
           <s-paragraph color="subdued">
-            Each shopper&apos;s list is kept on their phone. Once shoppers can
-            sign in, it&apos;s also kept in their store account, so it follows
-            them to a new phone.
+            Each shopper&apos;s list is kept on their phone, signed in or not.
           </s-paragraph>
         </SettingSwitch>
       </s-section>
@@ -1686,6 +1767,244 @@ function SizeCharts({
   );
 }
 
+// Shopper accounts (app-config accounts.ts; doc 03, section P): the store's own Customer
+// Account API client, made in Shopify's Headless channel, in the steps of Shopify's guide
+// (https://shopify.dev/docs/storefronts/headless/building-with-the-customer-account-api/getting-started).
+// The switch stays refused until the client ID, Shopify's customer accounts and the erasure
+// permission are all there.
+function ShopperAccounts({
+  on,
+  clientId,
+  callbackUrl,
+  version,
+  erasureAccess,
+  socialLogins,
+}: {
+  on: boolean;
+  clientId: string | null;
+  callbackUrl: string | null;
+  version: CustomerAccountsVersion | null;
+  erasureAccess: boolean;
+  // Other sign-in services on the store's Shopify sign-in page, such as "Shop".
+  socialLogins: string[];
+}) {
+  const shopify = useAppBridge();
+  const { revalidate } = useRevalidator();
+  const fetcher = useFetcher<typeof action>();
+  const [draft, setDraft] = useState(clientId ?? "");
+  const saving = fetcher.state !== "idle";
+  const result = saving ? undefined : fetcher.data;
+
+  useEffect(() => {
+    if (result && result.issues.length === 0)
+      shopify.toast.show("Client ID saved");
+  }, [result, shopify]);
+
+  const copy = async () => {
+    if (!callbackUrl) return;
+    try {
+      await navigator.clipboard.writeText(callbackUrl);
+      shopify.toast.show("Callback URL copied");
+    } catch {
+      shopify.toast.show(
+        "Couldn't copy. Select the callback URL and copy it instead.",
+        { isError: true },
+      );
+    }
+  };
+
+  const allow = async () => {
+    try {
+      const response = await shopify.scopes.request([ERASURE_SCOPE]);
+      if (response.result === "granted-all") revalidate();
+    } catch (error) {
+      console.error("Erasure permission:", error);
+      shopify.toast.show(
+        "Shopify couldn't ask for this permission. Please try again.",
+        { isError: true },
+      );
+    }
+  };
+
+  return (
+    <s-stack gap="base">
+      {version === "CLASSIC" && (
+        <s-banner
+          tone="warning"
+          heading="Your store uses legacy customer accounts"
+        >
+          Shopify&apos;s sign-in for apps needs customer accounts. Choose them
+          in step 1 first.
+        </s-banner>
+      )}
+      <SignInOptions handles={socialLogins} />
+      <s-ordered-list>
+        <s-list-item>
+          In Shopify, open Settings, then Customer accounts. Under Accounts in
+          online store and checkout, click Edit, choose Customer accounts, and
+          save.
+          {version === "NEW_CUSTOMER_ACCOUNTS" && (
+            <s-text color="subdued"> Done: your store uses them.</s-text>
+          )}
+        </s-list-item>
+        <s-list-item>
+          Install Shopify&apos;s Headless channel from the Shopify App Store.
+          When it&apos;s installed, click Create storefront.
+        </s-list-item>
+        <s-list-item>
+          Under Sales channels, click Headless, select your storefront, then go
+          to Customer Account API settings.
+        </s-list-item>
+        <s-list-item>
+          Change the client type to Public, then choose Mobile.
+        </s-list-item>
+        <s-list-item>
+          Under Application setup, add the callback URL below.
+        </s-list-item>
+        <s-list-item>
+          Under Permissions, check what your storefront may do. The Account tab
+          reads each shopper&apos;s profile, orders and addresses, and lets them
+          change their name and addresses.
+        </s-list-item>
+        <s-list-item>
+          Under Credentials, copy the Client ID, and save it below.
+        </s-list-item>
+        <s-list-item>
+          Allow Appsy to erase shoppers&apos; data. Apple and Google require
+          apps with sign-in to let shoppers delete their accounts: your app asks
+          Shopify to erase the shopper&apos;s data, which Shopify does 10 days
+          later.
+        </s-list-item>
+      </s-ordered-list>
+
+      {callbackUrl && (
+        <s-grid gridTemplateColumns="1fr auto" gap="small" alignItems="end">
+          <s-text-field label="Callback URL" value={callbackUrl} readOnly />
+          <s-button onClick={() => void copy()}>Copy</s-button>
+        </s-grid>
+      )}
+      <s-grid gridTemplateColumns="1fr auto" gap="small" alignItems="end">
+        <s-text-field
+          label="Client ID"
+          value={draft}
+          disabled={saving || undefined}
+          onInput={(event) => setDraft(event.currentTarget.value)}
+        />
+        <s-button
+          loading={saving || undefined}
+          disabled={
+            draft.trim() === "" || draft.trim() === clientId || undefined
+          }
+          onClick={() =>
+            fetcher.submit(
+              { setting: "accountClientId", value: draft },
+              { method: "POST" },
+            )
+          }
+        >
+          Save
+        </s-button>
+      </s-grid>
+      {result && result.issues.length > 0 && (
+        <s-banner tone="critical" heading="That Client ID wasn't saved">
+          {result.issues.map((issue) => (
+            <s-paragraph key={issue.message}>{issue.message}</s-paragraph>
+          ))}
+        </s-banner>
+      )}
+      {erasureAccess ? (
+        <s-paragraph color="subdued">
+          Appsy can erase shoppers&apos; data when they delete their accounts.
+        </s-paragraph>
+      ) : (
+        <s-banner tone="info" heading="Allow Appsy to erase shoppers' data">
+          <s-paragraph>
+            Shopper accounts switch on once Appsy can ask Shopify to erase a
+            shopper&apos;s data when they delete their account in your app.
+          </s-paragraph>
+          <s-button slot="secondary-actions" onClick={() => void allow()}>
+            Allow
+          </s-button>
+        </s-banner>
+      )}
+      <s-paragraph color="subdued">
+        {on
+          ? "Shoppers see the Account tab in your app. "
+          : "Then switch shopper accounts on. "}
+        Apps built before shopper accounts existed need a new build first:
+        Appsy&apos;s Home page tells you when.
+      </s-paragraph>
+    </s-stack>
+  );
+}
+
+// The other options on the store's Shopify sign-in page, against Apple's guideline 4.8
+// (models/accounts.ts): Google, Facebook and the like hold up iPhone builds until they're
+// off or Sign in with Apple is on too; Sign in with Shop is allowed, with a note for App
+// Review. Android apps aren't affected: Google Play has no such rule.
+function SignInOptions({ handles }: { handles: string[] }) {
+  const blocking = iphoneBlockingSignIns(handles);
+  const hasApple = handles.some(
+    (handle) => signInOptionKind(handle) === "apple",
+  );
+  const hasShop = handles.some((handle) => signInOptionKind(handle) === "shop");
+  const guideline = (
+    <s-link
+      href="https://developer.apple.com/app-store/review/guidelines/#login-services"
+      target="_blank"
+    >
+      Apple&apos;s guideline 4.8
+    </s-link>
+  );
+
+  if (handles.length === 0) return null;
+  return (
+    <s-stack gap="small">
+      {blocking.length > 0 && (
+        <s-banner
+          tone="warning"
+          heading={`Turn off ${blocking.join(" and ")} sign-in before building your iPhone app`}
+        >
+          <s-paragraph>
+            Your store&apos;s sign-in page offers {blocking.join(" and ")}.
+            Apple asks apps whose sign-in uses a third-party login like these to
+            also offer one that keeps shoppers&apos; email private, such as Sign
+            in with Apple, which Shopify doesn&apos;t offer yet. Until then,
+            your iPhone app can&apos;t be built while shopper accounts are on.
+            Your Android app isn&apos;t affected.
+          </s-paragraph>
+          <s-paragraph>
+            To turn them off, in Shopify open {SIGN_IN_SETTINGS}, click the …
+            menu next to each one, then Turn off. Shoppers already signed in
+            with them stay signed in, and can sign in with their email next
+            time. This changes your online store&apos;s sign-in too.
+          </s-paragraph>
+          {guideline}
+        </s-banner>
+      )}
+      {hasShop && !hasApple && (
+        <s-banner tone="info" heading="Sign in with Shop on your iPhone app">
+          <s-paragraph>
+            Your store&apos;s sign-in page also offers Sign in with Shop.
+            Apple&apos;s list of third-party logins doesn&apos;t name it, so
+            your iPhone app can be built with it, and Appsy gives you a note for
+            App Review on the Publishing page. Apple decides in review. If you
+            don&apos;t use Shop Pay, you can turn it off in {SIGN_IN_SETTINGS};
+            with Shop Pay on, Shopify keeps it on.
+          </s-paragraph>
+          {guideline}
+        </s-banner>
+      )}
+      {hasApple && (
+        <s-paragraph color="subdued">
+          Your store&apos;s sign-in page offers Sign in with Apple, which meets
+          Apple&apos;s rule for the other sign-in options.
+        </s-paragraph>
+      )}
+    </s-stack>
+  );
+}
+
 // One switch. It applies at once, as Polaris says switches should; if Shopify or Appsy
 // refused, it goes back and says why.
 function SettingSwitch({
@@ -1701,6 +2020,7 @@ function SettingSwitch({
     | "sizeCharts"
     | "googleAnalytics"
     | "pushNotifications"
+    | "accounts"
     | "currencyConversion"
     | "wishlist"
   >;

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACCOUNT_DELETION_KEEP_DAYS,
   APP_POLICY_HEADING,
   appPolicyText,
   appPrivacyItems,
   DATA_SAFETY_ITEMS,
   dataSafetyItems,
+  ERASE_AFTER_DAYS,
   USAGE_DATA_KEEP_MONTHS,
 } from "./index";
 
@@ -57,6 +59,25 @@ describe("the section stores add to their privacy policy", () => {
     expect(withPush).toContain("the Apple Push Notification service on iPhones");
     expect(withPush).toContain("as soon as Google or Apple says the address no longer works");
     expect(withPush).not.toMatch(/ {2}|\n{3}|^ | $/m);
+  });
+
+  it("covers signing in and deleting the account only for stores with shopper accounts", () => {
+    expect(text).not.toContain("Your account.");
+    const withAccounts = appPolicyText("Local noodle", {
+      pushNotifications: true,
+      accounts: true,
+    });
+    expect(withAccounts).toContain("Your account. You can sign in to your account at our store");
+    expect(withAccounts).toContain("choose Delete account, or contact us");
+    expect(withAccounts).toContain(`${ERASE_AFTER_DAYS} days later`);
+    expect(withAccounts).toContain("keeps records of what you bought and when");
+    expect(withAccounts).toContain(
+      "usage data, notification addresses and account deletion requests for us",
+    );
+    expect(withAccounts).toContain(
+      `${ACCOUNT_DELETION_KEEP_DAYS} days after it was made at the latest`,
+    );
+    expect(withAccounts).not.toMatch(/ {2}|\n{3}|^ | $/m);
   });
 });
 
@@ -120,6 +141,25 @@ describe("App Store answers", () => {
     );
   });
 
+  it("add the shopper's account and its customer ID with shopper accounts", () => {
+    const items = appPrivacyItems({ accounts: true });
+    expect(types(items)).toContain("Identifiers › User ID");
+    expect(types(items).indexOf("Identifiers › User ID")).toBe(
+      types(items).indexOf("Identifiers › Device ID") - 1,
+    );
+    expect(items.find((item) => item.type === "User ID")).toMatchObject({
+      purposes: ["App Functionality"],
+      linked: true,
+    });
+    expect(items.find((item) => item.type === "Physical Address")?.what).toContain(
+      "saved in the shopper's account",
+    );
+    expect(items.find((item) => item.type === "Purchase History")?.what).toContain(
+      "past orders in the Account tab",
+    );
+    expect(types(appPrivacyItems())).not.toContain("Identifiers › User ID");
+  });
+
   it("list each data type once, in Apple's order", () => {
     const items = appPrivacyItems({ googleAnalytics: true, pushNotifications: true });
     expect(new Set(types(items)).size).toBe(items.length);
@@ -181,10 +221,29 @@ describe("Data safety answers", () => {
     });
   });
 
+  it("add account management and the customer ID with shopper accounts", () => {
+    const items = dataSafetyItems({ accounts: true });
+    expect(items.map((item) => item.type).slice(0, 5)).toEqual([
+      "Name",
+      "Email address",
+      "User IDs",
+      "Address",
+      "Phone number",
+    ]);
+    for (const type of ["Name", "Email address", "User IDs", "Address", "Phone number"]) {
+      expect(items.find((item) => item.type === type)?.purposes).toEqual([
+        "App functionality",
+        "Account management",
+      ]);
+    }
+    expect(items.find((item) => item.type === "User IDs")?.optional).toBe(true);
+    expect(DATA_SAFETY_ITEMS.map((item) => item.type)).not.toContain("User IDs");
+  });
+
   it("list each data type once", () => {
     for (const items of [
       DATA_SAFETY_ITEMS,
-      dataSafetyItems({ googleAnalytics: true, pushNotifications: true }),
+      dataSafetyItems({ googleAnalytics: true, pushNotifications: true, accounts: true }),
     ]) {
       const types = items.map((item) => `${item.category} › ${item.type}`);
       expect(new Set(types).size).toBe(types.length);

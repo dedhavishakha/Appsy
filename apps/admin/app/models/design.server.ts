@@ -8,6 +8,7 @@ import {
   defaultPageSections,
   migrateDesign,
   PAGE_NAMES,
+  publishedSettingsSchema,
   SCHEMA_VERSION,
   sectionPages,
   settingsForm,
@@ -29,7 +30,7 @@ import db from "../db.server";
 import { apiVersion } from "../shopify.server";
 import { loadChannel, reportSetup } from "./channel.server";
 import type { ShopSetup } from "./shop.server";
-import { publicUrl, putPublicFile } from "./storage.server";
+import { publicUrl, putPublicFile, readPublicFile } from "./storage.server";
 import { storefrontQuery } from "./storefront.server";
 
 // Every package this version of the editor knows (docs/04, section 3).
@@ -84,6 +85,29 @@ export function liveKey(appProjectId: string) {
 
 function versionKey(appProjectId: string, number: number) {
   return `a/${appProjectId}/v/${number}.json`;
+}
+
+// The settings file phones download now (live.json, then the version it names), or null
+// before the first publish or when it can't be read.
+export async function loadLiveSettings(
+  appProjectId: string,
+): Promise<PublishedSettings | null> {
+  try {
+    const live = await readPublicFile(liveKey(appProjectId));
+    if (!live) return null;
+    const { version } = JSON.parse(live.toString("utf8")) as {
+      version?: unknown;
+    };
+    if (typeof version !== "number") return null;
+    const file = await readPublicFile(versionKey(appProjectId, version));
+    if (!file) return null;
+    const parsed = publishedSettingsSchema.safeParse(
+      JSON.parse(file.toString("utf8")),
+    );
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }
 
 // The design the editor opens: the current draft, or the live version when there's none,
@@ -611,6 +635,9 @@ async function writeLiveFile(
       // Where it registers for push notifications once shoppers allow them
       // (routes/api.push.$appId.tsx).
       push: `${appUrl}/api/push/${appProjectId}`,
+      // Where a signed-in shopper asks for their account to be deleted
+      // (routes/api.accounts.$appId_.delete.tsx).
+      accountDeletion: `${appUrl}/api/accounts/${appProjectId}/delete`,
     },
     app: appIdentity(shop),
   });

@@ -1,5 +1,6 @@
 import type { MetaFunction } from "react-router";
 import {
+  ACCOUNT_DELETION_KEEP_DAYS,
   PUSH_DEVICE_KEEP_DAYS,
   USAGE_DATA_KEEP_MONTHS,
 } from "@appsy/app-config";
@@ -94,6 +95,17 @@ export default function Privacy() {
           recording who.
         </li>
         <li>
+          If the store has shopper accounts, shoppers sign in on the
+          store&apos;s own Shopify sign-in page. The sign-in stays on the phone
+          and the app reads the shopper&apos;s orders, addresses and profile
+          straight from Shopify; none of it passes through Appsy. A shopper who
+          deletes their account in the app sends their sign-in to Appsy once:
+          Appsy uses it to learn their customer number from Shopify, asks
+          Shopify to erase the customer, and keeps the customer number with the
+          request, and the phone&apos;s random install ID when it has
+          notifications on, so the phone can be told when the account is gone.
+        </li>
+        <li>
           The shopper&apos;s chosen currency stays on their phone, and so do
           their wishlist and chosen country unless they allow notifications.
         </li>
@@ -159,6 +171,10 @@ export default function Privacy() {
           until the shopper turns notifications off, Google or Apple says the
           address no longer works, or the app hasn&apos;t been opened on that
           phone for {PUSH_DEVICE_KEEP_DAYS} days.
+        </li>
+        <li>
+          Account deletion requests: until Shopify tells Appsy the customer is
+          erased, and {ACCOUNT_DELETION_KEEP_DAYS} days at most.
         </li>
         <li>
           Store data: erased when Shopify asks us to, 48 hours after you

@@ -2,6 +2,7 @@ export * from "./version";
 export * from "./analytics";
 export * from "./privacy";
 export * from "./app-codes";
+export * from "./accounts";
 export * from "./size-charts";
 export * from "./ga4";
 export * from "./push";

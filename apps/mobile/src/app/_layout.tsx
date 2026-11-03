@@ -5,6 +5,7 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, AppState, Platform, Pressable, StyleSheet, View } from "react-native";
 import { publishedSettingsSchema, type PublishedSettings } from "@appsy/app-config";
+import { AccountProvider } from "@/components/account-provider";
 import { AnalyticsProvider } from "@/components/analytics-provider";
 import { BagButton } from "@/components/bag-button";
 import { CountryProvider } from "@/components/country-provider";
@@ -103,36 +104,46 @@ function DesignGate() {
           <CountryProvider>
             <CurrencyProvider>
               <WishlistProvider>
-                <PushProvider>
-                  <MenuDrawerProvider>
-                    <Stack
-                      screenOptions={{
-                        headerShadowVisible: false,
-                        headerTitleAlign: "center",
-                        headerTintColor: colors.text,
-                        // Titles such as "Your bag" in the heading font, once it's loaded.
-                        headerTitleStyle: typography.heading
-                          ? { fontFamily: typography.heading.bold }
-                          : undefined,
-                        headerStyle: { backgroundColor: colors.background },
-                        contentStyle: { backgroundColor: colors.background },
-                        headerRight: () => <BagButton />,
-                      }}
-                    >
-                      {/* Home, Shop, Search and Wishlist, with the tab bar (app/(tabs)). */}
-                      <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Home" }} />
-                      <Stack.Screen name="collections/[handle]" options={{ title: "" }} />
-                      <Stack.Screen name="products/[handle]" options={{ title: "" }} />
-                      <Stack.Screen name="cart" options={modal("Your bag")} />
-                      <Stack.Screen name="country" options={modal("Country or region")} />
-                      <Stack.Screen name="currency" options={modal("Currency")} />
-                      <Stack.Screen name="privacy" options={modal("Privacy choices")} />
-                      <Stack.Screen name="licences" options={modal("Open-source licences")} />
-                      <Stack.Screen name="size-chart" options={modal("Size chart")} />
-                    </Stack>
-                    {isPreview && <PreviewNavigator request={preview.navigation} />}
-                  </MenuDrawerProvider>
-                </PushProvider>
+                <AccountProvider>
+                  <PushProvider>
+                    <MenuDrawerProvider>
+                      <Stack
+                        screenOptions={{
+                          headerShadowVisible: false,
+                          headerTitleAlign: "center",
+                          headerTintColor: colors.text,
+                          // Titles such as "Your bag" in the heading font, once it's loaded.
+                          headerTitleStyle: typography.heading
+                            ? { fontFamily: typography.heading.bold }
+                            : undefined,
+                          headerStyle: { backgroundColor: colors.background },
+                          contentStyle: { backgroundColor: colors.background },
+                          headerRight: () => <BagButton />,
+                        }}
+                      >
+                        {/* Home, Shop, Search, Wishlist and Account, with the tab bar (app/(tabs)). */}
+                        <Stack.Screen name="(tabs)" options={{ headerShown: false, title: "Home" }} />
+                        <Stack.Screen name="collections/[handle]" options={{ title: "" }} />
+                        <Stack.Screen name="products/[handle]" options={{ title: "" }} />
+                        <Stack.Screen name="cart" options={modal("Your bag")} />
+                        <Stack.Screen name="country" options={modal("Country or region")} />
+                        <Stack.Screen name="currency" options={modal("Currency")} />
+                        <Stack.Screen name="privacy" options={modal("Privacy choices")} />
+                        <Stack.Screen name="licences" options={modal("Open-source licences")} />
+                        <Stack.Screen name="size-chart" options={modal("Size chart")} />
+                        <Stack.Screen name="account/orders/index" options={{ title: "Orders" }} />
+                        <Stack.Screen name="account/orders/[id]" options={{ title: "Order" }} />
+                        <Stack.Screen name="account/addresses/index" options={{ title: "Addresses" }} />
+                        <Stack.Screen name="account/addresses/edit" options={modal("Edit address")} />
+                        <Stack.Screen name="account/profile" options={{ title: "Profile" }} />
+                        <Stack.Screen name="account/delete" options={modal("Delete account")} />
+                        {/* Where Shopify's sign-in page returns (app/callback.tsx). */}
+                        <Stack.Screen name="callback" options={{ headerShown: false, animation: "none" }} />
+                      </Stack>
+                      {isPreview && <PreviewNavigator request={preview.navigation} />}
+                    </MenuDrawerProvider>
+                  </PushProvider>
+                </AccountProvider>
               </WishlistProvider>
             </CurrencyProvider>
           </CountryProvider>

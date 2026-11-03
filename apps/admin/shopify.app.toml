@@ -16,9 +16,9 @@ name = "Appsy"
 # (Appsy reads a file's address and status; it never uploads, so no write_files).
 # read_online_store_navigation: the editor lists the store's menus for the app's side menu; phones
 # then read the chosen menu with the Storefront token (unauthenticated_read_content).
-# Shopper login (decided 2026-10-08, docs/spikes/S3): Appsy's own client by default plus an optional
-# merchant Headless client. customer_* scopes and [customer_authentication] are added in Phase 3,
-# with Appsy's real HTTPS callback, when the login feature is built.
+# Shopper login (decided 2026-11-02, replacing the 2026-10-08 plan in docs/spikes/S3): only the
+# store's own Headless client, which the merchant makes in Shopify; phones sign in to it directly.
+# So Appsy needs no customer_* scopes and no [customer_authentication].
 # read_only_own_orders (analytics' orders and sales; it reads only the orders the channel created)
 # isn't listed here: App Store requirement 5.7.1 says Shopify adds it during review, and the CLI
 # refuses it in this file ("These scopes are invalid", tried on the development store 2026-10-16).
@@ -28,7 +28,9 @@ scopes = "read_products,read_product_listings,read_publications,read_files,read_
 # Optional: stores grant these later, only if they use the feature, and can decline them
 # (https://shopify.dev/docs/apps/build/authentication-authorization/app-installation/manage-access-scopes).
 # read_discounts: the list of app-only discount codes on the Functionality page (added 2026-10-28).
-optional_scopes = [ "read_discounts" ]
+# write_customer_data_erasure: shopper accounts; a shopper who deletes their account in the app
+# gets customerRequestDataErasure (models/account-deletion.server.ts; added 2026-11-02).
+optional_scopes = [ "read_discounts", "write_customer_data_erasure" ]
 
 [webhooks]
 # A stable version, the same as the rest of the app (app/shopify.server.ts); 2027-01 is a

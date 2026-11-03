@@ -11,6 +11,9 @@ export type Push = {
   setOn: (on: boolean) => void;
   // Shown under Privacy choices while notifications are on, for test sends from Appsy.
   testCode: string | null;
+  // The phone's ID with Appsy while notifications are on: an account deletion request sends
+  // it, so Appsy can say when the account is gone.
+  installId: string | null;
   // The first time the shopper adds to their bag, the app asks about notifications.
   afterAddToBag: () => void;
   // An order was placed, so the bag reminder goes.
@@ -22,6 +25,7 @@ export const PushContext = createContext<Push>({
   on: false,
   setOn: () => {},
   testCode: null,
+  installId: null,
   afterAddToBag: () => {},
   orderPlaced: () => {},
 });

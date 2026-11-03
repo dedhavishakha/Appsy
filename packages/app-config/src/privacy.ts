@@ -1,3 +1,4 @@
+import { ERASE_AFTER_DAYS } from "./accounts";
 import type { AnalyticsEventName } from "./analytics";
 import { PUSH_DEVICE_KEEP_DAYS } from "./push";
 
@@ -9,6 +10,10 @@ import { PUSH_DEVICE_KEEP_DAYS } from "./push";
 
 // Appsy deletes usage events this long after they happen (admin models/usage-data.server.ts).
 export const USAGE_DATA_KEEP_MONTHS = 13;
+
+// Appsy keeps a shopper's request to delete their account until Shopify says the account is
+// erased, and this long at most (admin models/account-deletion.server.ts).
+export const ACCOUNT_DELETION_KEEP_DAYS = 60;
 
 // How the policy (to shoppers) and the Data safety answers (to merchants) name each usage
 // event. A new event doesn't compile until it's named in both.
@@ -40,8 +45,13 @@ const MERCHANT_EVENTS = list(WORDS.map((words) => words.merchant));
 export const APP_POLICY_HEADING = "Our mobile app";
 
 // What a store's app does beyond every app: Google Analytics, when the store connects it
-// (ga4.ts), and push notifications, when the store switches them on (push.ts).
-export type PrivacyOptions = { googleAnalytics?: boolean; pushNotifications?: boolean };
+// (ga4.ts), push notifications, when the store switches them on (push.ts), and shopper
+// accounts, likewise (accounts.ts).
+export type PrivacyOptions = {
+  googleAnalytics?: boolean;
+  pushNotifications?: boolean;
+  accounts?: boolean;
+};
 
 // What the Google Analytics SDK collects by default, from Google's guidance for Google Play
 // (https://support.google.com/analytics/answer/11582702): an app-instance ID, the advertising
@@ -76,12 +86,34 @@ const PUSH_PARAGRAPH = [
   "records, or in your phone's settings.",
 ];
 
+// What shopper accounts add (accounts.ts): signing in on Shopify's own sign-in page, the
+// sign-in kept on the phone and sent only to Shopify, the account shown from Shopify, and
+// deleting the account, which goes through Appsy (the request, with the customer's number,
+// kept until Shopify has erased the account).
+const ACCOUNT_PARAGRAPH = [
+  "Your account. You can sign in to your account at our store in the app, on Shopify's",
+  "sign-in page. The app keeps your sign-in on your phone, in its secure storage, and uses it",
+  "to show your orders, saved addresses and profile, which it reads from our store on Shopify,",
+  "and so that checkout knows who you are. Signing out ends your sign-in. To delete your",
+  "account, open the app's Account tab and choose Delete account, or contact us. The app sends",
+  "the request to Appsy, which checks with Shopify who you are and asks Shopify to erase your",
+  "account. Shopify erases your personal details, such as your name and addresses,",
+  `${ERASE_AFTER_DAYS} days later, and keeps records of what you bought and when. Until then,`,
+  `and for ${ACCOUNT_DELETION_KEEP_DAYS} days at most, Appsy keeps your customer number with`,
+  "the request.",
+];
+
 // The section a store adds to its privacy policy, as plain text to paste into Shopify. It
 // holds for every design: what depends on a setting (exchange rates, the wishlist) only
 // happens when the shopper uses it.
 export function appPolicyText(appName: string, options: PrivacyOptions = {}): string {
   const push = options.pushNotifications === true;
-  const stored = push ? "usage data and notification addresses" : "usage data";
+  const accounts = options.accounts === true;
+  const stored = list([
+    "usage data",
+    ...(push ? ["notification addresses"] : []),
+    ...(accounts ? ["account deletion requests"] : []),
+  ]);
   const paragraphs = [
     [APP_POLICY_HEADING],
     [
@@ -103,6 +135,7 @@ export function appPolicyText(appName: string, options: PrivacyOptions = {}): st
     ],
     ...(options.googleAnalytics ? [GOOGLE_ANALYTICS_PARAGRAPH] : []),
     ...(push ? [PUSH_PARAGRAPH] : []),
+    ...(accounts ? [ACCOUNT_PARAGRAPH] : []),
     [
       "Shopping. Products, search results, your bag and checkout come from our online store,",
       "which runs on Shopify. When you search, the words you type are sent to Shopify to find",
@@ -133,6 +166,12 @@ export function appPolicyText(appName: string, options: PrivacyOptions = {}): st
             `${PUSH_DEVICE_KEEP_DAYS} days after the app was last opened on it.`,
           ]
         : []),
+      ...(accounts
+        ? [
+            "An account deletion request is deleted once Shopify has erased the account, and",
+            `${ACCOUNT_DELETION_KEEP_DAYS} days after it was made at the latest.`,
+          ]
+        : []),
     ],
     [
       "Questions. To ask about your data or to ask us to delete it, contact us using the",
@@ -150,7 +189,8 @@ export type DataSafetyPurpose =
   | "App functionality"
   | "Analytics"
   | "Developer communications"
-  | "Advertising or marketing";
+  | "Advertising or marketing"
+  | "Account management";
 
 // One data type to tick in the Data safety form. All of them are collected, none shared:
 // Appsy, Shopify and Google Analytics handle the data for the store as service providers,
@@ -176,14 +216,29 @@ const atCheckout = (category: string, type: string, what: string): DataSafetyIte
   optional: false,
 });
 
+// The contact details a signed-in shopper's account holds, which the app shows them
+// (ACCOUNT_PARAGRAPH): Google's "Account management" purpose, "the setup or management of a
+// user's account with the developer".
+function withAccount(item: DataSafetyItem, what: string): DataSafetyItem {
+  return {
+    ...item,
+    what: `${item.what} ${what}`,
+    purposes: [...item.purposes, "Account management"],
+  };
+}
+
 // In the order Play Console lists them under Data types, so stores can tick them from the
 // top. Google Analytics adds a rough location and analytics uses (GOOGLE_ANALYTICS_PARAGRAPH);
 // push notifications add the notification address, the bag and wishlist for reminders and
 // the phone's time zone, which covers far more than Google's 3 square kilometres
-// (PUSH_PARAGRAPH).
+// (PUSH_PARAGRAPH); shopper accounts add the account's details and the customer's ID, a
+// "User ID" in Google's words: "an account ID, account number, or account name".
 export function dataSafetyItems(options: PrivacyOptions = {}): DataSafetyItem[] {
   const ga4 = options.googleAnalytics === true;
   const push = options.pushNotifications === true;
+  const accounts = options.accounts === true;
+  const account = (item: DataSafetyItem, what: string) =>
+    accounts ? withAccount(item, what) : item;
   const location = [
     ...(ga4
       ? [
@@ -205,9 +260,12 @@ export function dataSafetyItems(options: PrivacyOptions = {}): DataSafetyItem[] 
   const purchases = atCheckout(
     "Financial info",
     "Purchase history",
-    ga4
-      ? "The bag and the order placed at checkout; orders also go to Google Analytics, after the shopper allows usage data."
-      : "The bag and the order placed at checkout.",
+    [
+      ga4
+        ? "The bag and the order placed at checkout; orders also go to Google Analytics, after the shopper allows usage data."
+        : "The bag and the order placed at checkout.",
+      ...(accounts ? ["Signed-in shoppers see their past orders in the Account tab."] : []),
+    ].join(" "),
   );
   return [
     ...(location.length > 0
@@ -224,10 +282,37 @@ export function dataSafetyItems(options: PrivacyOptions = {}): DataSafetyItem[] 
           },
         ]
       : []),
-    atCheckout("Personal info", "Name", "Entered at checkout."),
-    atCheckout("Personal info", "Email address", "Entered at checkout."),
-    atCheckout("Personal info", "Address", "The delivery address entered at checkout."),
-    atCheckout("Personal info", "Phone number", "Entered at checkout, if the checkout asks for it."),
+    account(
+      atCheckout("Personal info", "Name", "Entered at checkout."),
+      "And in the shopper's account, which they can see and change after signing in.",
+    ),
+    account(
+      atCheckout("Personal info", "Email address", "Entered at checkout."),
+      "And the email address the shopper signs in with.",
+    ),
+    ...(accounts
+      ? [
+          {
+            category: "Personal info",
+            type: "User IDs",
+            what: `The shopper's customer account at the store, after they sign in. The sign-in stays on the phone; Appsy keeps the customer's number with a request to delete the account, for ${ACCOUNT_DELETION_KEEP_DAYS} days at most.`,
+            purposes: ["App functionality", "Account management"],
+            optional: true,
+          } satisfies DataSafetyItem,
+        ]
+      : []),
+    account(
+      atCheckout("Personal info", "Address", "The delivery address entered at checkout."),
+      "And addresses saved in the shopper's account, which they can change after signing in.",
+    ),
+    account(
+      atCheckout(
+        "Personal info",
+        "Phone number",
+        "Entered at checkout, if the checkout asks for it.",
+      ),
+      "And the phone number in the shopper's account.",
+    ),
     atCheckout(
       "Financial info",
       "User payment info",
@@ -302,10 +387,15 @@ const enteredAtCheckout = (category: string, type: string, what: string): AppPri
 // coarse location and Firebase's diagnostic data, which Firebase's own Apple privacy file
 // declares as not linked (FirebaseInstallations); push notifications add the phone's address
 // from Apple's push service, the country and time zone it's kept with, and the bag and
-// wishlist for reminders (purchase tendencies, in Apple's words).
+// wishlist for reminders (purchase tendencies, in Apple's words). Shopper accounts add the
+// account's details and the customer's ID, a "User ID" in Apple's words ("account ID ...
+// customer number, or other user- or account-level ID").
 export function appPrivacyItems(options: PrivacyOptions = {}): AppPrivacyItem[] {
   const ga4 = options.googleAnalytics === true;
   const push = options.pushNotifications === true;
+  const accounts = options.accounts === true;
+  const inAccount = (what: string, account: string) =>
+    accounts ? `${what} ${account}` : what;
   const ids = ga4
     ? "The random ID the app creates, and Google Analytics' ID for the app on the phone, after the shopper allows usage data. Not the advertising ID or Apple's vendor ID."
     : "The random ID the app creates when the shopper allows usage data.";
@@ -333,19 +423,37 @@ export function appPrivacyItems(options: PrivacyOptions = {}): AppPrivacyItem[] 
           "And, after the shopper allows notifications, what's in their bag (by its ID at the store) and on their wishlist, with when each changed, for reminders.",
         ]
       : []),
+    ...(accounts ? ["Signed-in shoppers see their past orders in the Account tab."] : []),
   ];
   return [
-    enteredAtCheckout("Contact Info", "Name", "Entered at checkout."),
-    enteredAtCheckout("Contact Info", "Email Address", "Entered at checkout."),
+    enteredAtCheckout(
+      "Contact Info",
+      "Name",
+      inAccount(
+        "Entered at checkout.",
+        "And in the shopper's account, which they can see and change after signing in.",
+      ),
+    ),
+    enteredAtCheckout(
+      "Contact Info",
+      "Email Address",
+      inAccount("Entered at checkout.", "And the email address the shopper signs in with."),
+    ),
     enteredAtCheckout(
       "Contact Info",
       "Phone Number",
-      "Entered at checkout, if the checkout asks for it.",
+      inAccount(
+        "Entered at checkout, if the checkout asks for it.",
+        "And the phone number in the shopper's account.",
+      ),
     ),
     enteredAtCheckout(
       "Contact Info",
       "Physical Address",
-      "The delivery address entered at checkout.",
+      inAccount(
+        "The delivery address entered at checkout.",
+        "And addresses saved in the shopper's account, which they can change after signing in.",
+      ),
     ),
     enteredAtCheckout(
       "Financial Info",
@@ -374,6 +482,17 @@ export function appPrivacyItems(options: PrivacyOptions = {}): AppPrivacyItem[] 
       purposes: ["App Functionality"],
       linked: true,
     },
+    ...(accounts
+      ? [
+          {
+            category: "Identifiers",
+            type: "User ID",
+            what: `The shopper's customer account at the store, after they sign in. The sign-in stays on the phone; Appsy keeps the customer's number with a request to delete the account, for ${ACCOUNT_DELETION_KEEP_DAYS} days at most.`,
+            purposes: ["App Functionality"],
+            linked: true,
+          } satisfies AppPrivacyItem,
+        ]
+      : []),
     {
       category: "Identifiers",
       type: "Device ID",

@@ -152,7 +152,7 @@ export function createDefaultDesign(shop: { defaultCountry: string }): AppDesign
       buttons: classic.buttons,
     },
     navigation: {
-      // The Account tab arrives with shopper sign-in (Phase 3).
+      // The Account tab joins when the store switches shopper accounts on (accounts.ts).
       tabs: ["home", "shop", "search", "wishlist"],
       header: {
         left: ["menu"],

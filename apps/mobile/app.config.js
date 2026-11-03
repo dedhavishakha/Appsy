@@ -20,7 +20,12 @@ const { join } = require("node:path");
 // - notifications (expo-notifications) in every build: the bag reminder needs no Firebase.
 //   Android draws the small icon as a white shape, tinted with the store's brand colour. A
 //   merchant's iPhone builds go to TestFlight and the App Store, so their push entitlement
-//   is "production".
+//   is "production";
+// - the address Shopify's sign-in page returns to (shopper accounts), in every build Appsy's
+//   server starts: Shopify requires a mobile client's callback scheme to be
+//   shop.{shop_id}.*, so the build registers shop.<the store's ID>.appsy
+//   (packages/app-config/src/accounts.ts makes the same callback for the merchant to enter).
+//   It's there even while the store has accounts off, so switching them on needs no build.
 // No build uses the phone's advertising ID, so its permission is removed from every build.
 // Plain JavaScript, so it needs no Node.js type definitions in the app's TypeScript setup.
 // A change to the app's code that merchants should get (a feature, a fix they'd notice, a new
@@ -49,12 +54,16 @@ const NOTIFICATION_ICON = "./assets/notification-icon.png";
 // The app's one notification channel (PUSH_CHANNEL in packages/app-config/src/push.ts).
 const NOTIFICATION_CHANNEL = "offers";
 const HEX_COLOUR = /^#[0-9a-f]{6}$/i;
+// A store's ID, the number in its Shopify ID (APPSY_SHOP_ID, from Appsy's server).
+const SHOP_ID = /^\d+$/;
 
 // Apple's "required reason" APIs that the app's native libraries use, copied from their own
 // PrivacyInfo.xcprivacy files: Expo says Apple doesn't read every library's file in these
 // builds (https://docs.expo.dev/guides/apple-privacy/). Checked 2026-10-31 against React
 // Native, AsyncStorage and expo-application, -constants, -file-system, -localization and
-// -notifications. A new native library means checking its file again.
+// -notifications; on 2026-11-02 expo-secure-store and expo-crypto had no such file (and none
+// of those APIs in their iPhone code), and expo-auth-session has no native code. A new native
+// library means checking its file again.
 const PRIVACY_MANIFEST = {
   NSPrivacyAccessedAPITypes: [
     {
@@ -117,12 +126,16 @@ module.exports = ({ config, projectRoot }) => {
   const firebaseAndroid = !preview && existsSync(join(projectRoot, GOOGLE_SERVICES));
   const firebaseIos = !preview && existsSync(join(projectRoot, GOOGLE_SERVICES_IOS));
   const brand = bundledSettings?.theme?.colors?.brand;
+  const shopId = process.env.APPSY_SHOP_ID;
+  const accountScheme = !preview && shopId && SHOP_ID.test(shopId) ? `shop.${shopId}.appsy` : null;
   return {
     ...config,
     name:
       identity?.name ||
       (typeof appName === "string" && appName ? appName : (config.name ?? "Appsy")),
     slug: config.slug ?? "appsy-by-scopegen",
+    // app.json's own scheme stays first: links the app makes use it.
+    ...(accountScheme ? { scheme: [...[config.scheme ?? []].flat(), accountScheme] } : {}),
     ...(identity?.icon ? { icon: identity.icon } : {}),
     ios: {
       ...config.ios,

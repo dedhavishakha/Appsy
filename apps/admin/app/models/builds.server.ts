@@ -1,5 +1,8 @@
 import type { AppBuild } from "@prisma/client";
+import { accountClientId, shopNumber } from "@appsy/app-config";
 import db from "../db.server";
+import { iphoneBlockingSignIns, SIGN_IN_SETTINGS } from "./accounts";
+import { socialLoginProviders } from "./accounts.server";
 import {
   ACTIVE_STATUSES,
   type BuildReadiness,
@@ -7,7 +10,7 @@ import {
   type BuildStatus,
 } from "./builds";
 import { appRebuildReasons, buildContents } from "./build-contents.server";
-import { liveKey, loadStatus } from "./design.server";
+import { liveKey, loadLiveSettings, loadStatus } from "./design.server";
 import { firebaseFileFor, firebaseIosFileFor } from "./google-analytics.server";
 import { identitySchema } from "./identity";
 import { identityKey } from "./identity.server";
@@ -74,6 +77,23 @@ function unavailable() {
   return null;
 }
 
+// While shopper accounts are on, what the store's sign-in page offers besides the email code
+// that holds up iPhone builds (models/accounts.ts, Apple's guideline 4.8), as a step to do.
+async function iphoneSignInStep(
+  appProjectId: string,
+  shop: { shopDomain: string; storefrontToken: string | null },
+): Promise<string | null> {
+  const settings = await loadLiveSettings(appProjectId);
+  if (!settings || !accountClientId(settings)) return null;
+  const handles = await socialLoginProviders(shop);
+  if (!handles) {
+    return "Appsy couldn't read your store's sign-in options from Shopify. Reload the page to try again.";
+  }
+  const blocking = iphoneBlockingSignIns(handles);
+  if (blocking.length === 0) return null;
+  return `Turn off ${blocking.join(" and ")} sign-in in Shopify (${SIGN_IN_SETTINGS}), or switch shopper accounts off on the Functionality page: Apple asks apps with such logins to offer Sign in with Apple too, which Shopify doesn't offer yet.`;
+}
+
 // Builds download the published files first (apps/mobile/scripts/fetch-build-identity.mjs)
 // and stop without them, so they're checked here before Expo is asked to build. Each
 // platform also needs its store account; iPhone uploads need the app made in App Store
@@ -88,12 +108,16 @@ async function readiness(appProjectId: string) {
         iosBundleId: true,
         storeAccounts: true,
         identity: true,
+        shop: {
+          select: { shopGid: true, shopDomain: true, storefrontToken: true },
+        },
       },
     }),
     loadStatus(appProjectId),
     readPublicFile(liveKey(appProjectId)),
     readPublicFile(identityKey(appProjectId)),
   ]);
+  const signInStep = await iphoneSignInStep(appProjectId, project.shop);
   const accounts = storeAccountsSchema.safeParse(project.storeAccounts ?? {});
   const missing: string[] = [];
   if (status.liveVersion === null)
@@ -124,6 +148,7 @@ async function readiness(appProjectId: string) {
       "Create your app in App Store Connect, then add its Apple ID under Store accounts.",
     );
   }
+  if (signInStep) ios.push(signInStep);
   const notNow = unavailable();
   return {
     readiness: {
@@ -132,6 +157,7 @@ async function readiness(appProjectId: string) {
     } satisfies Record<Platform, BuildReadiness>,
     appIds: { android: project.androidPackage, ios: project.iosBundleId },
     appName: project.appName,
+    shopId: shopNumber(project.shop.shopGid),
     liveVersion: status.liveVersion,
     identityFile,
   };
@@ -226,6 +252,7 @@ export async function startBuild(
   keepChecking();
   const app: MerchantApp = {
     ...merchantApp(appProjectId, appId),
+    shopId: ready.shopId,
     ...(platform === "ios"
       ? { googleServicesIos: firebaseFile }
       : { googleServices: firebaseFile }),

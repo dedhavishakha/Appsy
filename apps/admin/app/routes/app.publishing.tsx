@@ -14,12 +14,14 @@ import type { BuildIntent, BuildResult } from "../models/builds";
 import { loadBuilds, startBuild, uploadAgain } from "../models/builds.server";
 import { loadIdentity, saveIdentity } from "../models/identity.server";
 import type { IdentityIssue } from "../models/identity";
-import { GA4_FEATURE, pushOn } from "@appsy/app-config";
+import { ACCOUNT_FEATURE, GA4_FEATURE, pushOn } from "@appsy/app-config";
 import { loadDesign } from "../models/design.server";
 import {
   loadFirebase,
   loadFirebaseIos,
 } from "../models/google-analytics.server";
+import { signInOptionKind } from "../models/accounts";
+import { socialLoginProviders } from "../models/accounts.server";
 import { loadPrivacyPolicy } from "../models/privacy-policy.server";
 import { ensureShopSetup } from "../models/shop.server";
 import type { StoreIntent, StoreResult } from "../models/store-accounts";
@@ -77,8 +79,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // The privacy text and the stores' answers mention Google Analytics once the store has
   // switched it on and given the Firebase file for that platform (Google Play's for
   // Android, the App Store's for iPhone, the privacy text's for either), and notifications
-  // once push notifications are on (Functionality page).
+  // and shopper accounts once they're on (Functionality page). Google Play asks apps with
+  // accounts for a web page to delete one (routes/delete-account.$appId.tsx).
   const ga4 = design.features[GA4_FEATURE]?.enabled === true;
+  const accounts = design.features[ACCOUNT_FEATURE]?.enabled === true;
+  // What the store's sign-in page offers besides the email code, for the App Review note.
+  const signIns = accounts ? ((await socialLoginProviders(shop)) ?? []) : [];
   return {
     identity,
     store,
@@ -90,6 +96,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       ios: ga4 && firebaseIos !== null,
     },
     pushNotifications: pushOn(design),
+    accounts: accounts
+      ? {
+          // eslint-disable-next-line no-undef
+          deletionPage: `${process.env.SHOPIFY_APP_URL ?? ""}/delete-account/${shop.appProject.id}`,
+          signInWithShop: signIns.some(
+            (handle) => signInOptionKind(handle) === "shop",
+          ),
+        }
+      : null,
   };
 };
 
@@ -271,6 +286,7 @@ export default function Publishing() {
     filesAccess,
     googleAnalytics,
     pushNotifications,
+    accounts,
   } = useLoaderData<typeof loader>();
 
   return (
@@ -463,6 +479,7 @@ export default function Publishing() {
         policy={privacyPolicy}
         googleAnalytics={googleAnalytics}
         pushNotifications={pushNotifications}
+        accounts={accounts}
       />
 
       <s-section heading="Keeping your app up to date">

@@ -22,7 +22,13 @@
       "expo-router",
       "expo-web-browser",
       "expo-localization",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ]
     ],
     "extra": {
       "eas": {

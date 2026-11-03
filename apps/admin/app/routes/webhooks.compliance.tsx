@@ -1,21 +1,29 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
+import { customerErased } from "../models/account-deletion.server";
 import { deletePublicFiles } from "../models/storage.server";
 import { deleteStoreKeys } from "../models/vault.server";
 
 // Shopify's mandatory privacy webhooks (docs/05-security-and-compliance.md, section 4).
 // authenticate.webhook answers requests with an invalid HMAC with 401, as Shopify requires.
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { shop, topic } = await authenticate.webhook(request);
+  const { shop, topic, payload } = await authenticate.webhook(request);
 
   console.log(`Received ${topic} webhook for ${shop}`);
 
   switch (topic) {
-    // Appsy holds no customer data yet. The wishlist and push devices (Phase 3) will
-    // export it to the merchant here, and delete it.
+    // Appsy keeps no customer's data apart from a pending account deletion request, which
+    // only holds the customer's ID, and goes once the customer is erased (below).
     case "CUSTOMERS_DATA_REQUEST":
+      break;
+    // The customer is erased: a phone that asked to delete its shopper's account hears so,
+    // and Appsy forgets the request (models/account-deletion.server.ts).
     case "CUSTOMERS_REDACT":
+      await customerErased(
+        shop,
+        (payload as { customer?: { id?: unknown } } | null)?.customer?.id,
+      );
       break;
     // Sent 48 hours after an uninstall. Deleting the Shop row also deletes its app,
     // design versions, analytics and asset records; its published files (designs, icon and

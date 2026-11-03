@@ -79,10 +79,12 @@ const EAS_BUILD_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // The merchant's App ID (package name and bundle ID), the address of their published
-// design, and, for builds, their Firebase files when they connected Google Analytics.
+// design, and, for builds, the store's ID (for shopper sign-in's callback address) and their
+// Firebase files when they connected Google Analytics.
 export type MerchantApp = {
   appId: string;
   settingsUrl: string;
+  shopId?: string | null;
   googleServices?: string | null;
   googleServicesIos?: string | null;
 };
@@ -165,6 +167,8 @@ async function workspace(
         env: {
           EXPO_PUBLIC_SETTINGS_URL: app.settingsUrl,
           APPSY_APP_ID: app.appId,
+          // apps/mobile/app.config.js: the scheme of Shopify's sign-in callback.
+          ...(app.shopId ? { APPSY_SHOP_ID: app.shopId } : {}),
           // Written to a file by the build's first step (fetch-build-identity.mjs). Not a
           // secret: it's inside the app, but Appsy doesn't put it on the public CDN.
           ...(app.googleServices

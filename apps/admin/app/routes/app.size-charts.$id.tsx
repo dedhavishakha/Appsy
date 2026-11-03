@@ -18,6 +18,7 @@ import { authenticate } from "../shopify.server";
 import { ensureShopSetup } from "../models/shop.server";
 import { loadPages } from "../models/design.server";
 import { loadSizeChart, saveSizeChart } from "../models/size-charts.server";
+import { SaveBar } from "../components/save-bar";
 import { ImagePicker } from "../components/setting-control";
 import {
   SizeChartTableEditor,
@@ -148,14 +149,7 @@ export default function SizeChartEditor() {
   const errors = busy ? [] : (fetcher.data?.errors ?? []);
 
   // Shopify's save bar shows while the chart differs from the saved one, and goes with
-  // the page (Save Bar API, programmatic).
-  useEffect(() => {
-    void (dirty
-      ? shopify.saveBar.show(SAVE_BAR_ID)
-      : shopify.saveBar.hide(SAVE_BAR_ID));
-  }, [dirty, shopify]);
-  useEffect(() => () => void shopify.saveBar.hide(SAVE_BAR_ID), [shopify]);
-
+  // the page (components/save-bar.tsx).
   useEffect(() => {
     if (busy || !fetcher.data || pendingJson.current === null) return;
     const { id } = fetcher.data;
@@ -196,15 +190,13 @@ export default function SizeChartEditor() {
       <s-link slot="breadcrumb-actions" href="/app/functionality">
         Functionality
       </s-link>
-      {/* Discard asks first. */}
-      <ui-save-bar id={SAVE_BAR_ID} discardConfirmation>
-        <button variant="primary" disabled={busy} onClick={save}>
-          Save
-        </button>
-        <button disabled={busy} onClick={discard}>
-          Discard
-        </button>
-      </ui-save-bar>
+      <SaveBar
+        id={SAVE_BAR_ID}
+        dirty={dirty}
+        busy={busy}
+        onSave={save}
+        onDiscard={discard}
+      />
 
       {errors.length > 0 && (
         <s-banner tone="critical" heading="The chart wasn't saved">

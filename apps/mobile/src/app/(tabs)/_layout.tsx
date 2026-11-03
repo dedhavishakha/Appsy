@@ -4,25 +4,29 @@ import type { ComponentProps } from "react";
 import { BagButton } from "@/components/bag-button";
 import { HeaderItems } from "@/components/header-items";
 import { StoreLogo } from "@/components/store-logo";
+import { useAccount } from "@/lib/account";
 import { useSettings } from "@/lib/app-settings";
 import { useTypography } from "@/lib/fonts";
 import { BORDER } from "@/lib/menu-drawer";
+import { isPreview } from "@/lib/settings";
 import { useWishlist, useWishlistEnabled } from "@/lib/wishlist";
 
 type IconName = ComponentProps<typeof Ionicons>["name"];
 
-// The tabs the design can list (navigation.tabs), each with its screen in this folder. The
-// Account tab arrives with shopper sign-in; phones skip tabs they don't have.
+// The tabs the design can list (navigation.tabs), each with its screen in this folder.
+// Phones skip tabs they don't have.
 const TABS: Record<string, { screen: string; title: string; icon: IconName; active: IconName }> = {
   home: { screen: "index", title: "Home", icon: "home-outline", active: "home" },
   shop: { screen: "shop", title: "Shop", icon: "grid-outline", active: "grid" },
   search: { screen: "search", title: "Search", icon: "search-outline", active: "search" },
   wishlist: { screen: "wishlist", title: "Wishlist", icon: "heart-outline", active: "heart" },
+  account: { screen: "account", title: "Account", icon: "person-outline", active: "person" },
 };
 
 // Seeaash's tab bar, in the design's order and the merchant's colours and fonts. A tab that
 // isn't listed (or whose feature is off) is hidden, but its screen still opens from links.
-// With one tab, there's no bar.
+// With one tab, there's no bar. The Account tab also needs a build that can sign in; the
+// editor's preview shows it as shoppers will see it.
 export default function TabsLayout() {
   const settings = useSettings();
   const { colors } = settings.theme;
@@ -30,9 +34,14 @@ export default function TabsLayout() {
   const typography = useTypography();
   const wishlistOn = useWishlistEnabled();
   const saved = useWishlist().items.length;
+  const account = useAccount();
+  const accountOn = account.offered && (account.supported || isPreview);
 
   const shown = settings.navigation.tabs.filter(
-    (id) => Object.hasOwn(TABS, id) && (id !== "wishlist" || wishlistOn),
+    (id) =>
+      Object.hasOwn(TABS, id) &&
+      (id !== "wishlist" || wishlistOn) &&
+      (id !== "account" || accountOn),
   );
   const hidden = Object.keys(TABS).filter((id) => !shown.includes(id));
 

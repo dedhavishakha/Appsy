@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   ActionFunctionArgs,
   HeadersFunction,
@@ -33,12 +33,14 @@ import {
   syncLegacyBagReminder,
 } from "../models/push-automations.server";
 import { loadPushKeys, pushPictureUrl } from "../models/push.server";
+import { SaveBar } from "../components/save-bar";
 import { ImagePicker } from "../components/setting-control";
 import { usePickImage } from "../components/use-pick-image";
 
 // One automatic notification (models/push-automations.server.ts), Appsy's template or the
 // merchant's own ("new" makes one): when it sends, its words with the product's and app's
-// names, its picture, and a test to the merchant's own phone. Saved with Shopify's save bar.
+// names, its picture, and a test to the merchant's own phone. Saved with Shopify's save bar or
+// the page's own Save button.
 
 const SAVE_BAR = "automation-save-bar";
 
@@ -213,35 +215,46 @@ export default function AutomationPage() {
     : fromTemplate("abandoned_bag");
   const [saved, setSaved] = useState(initial);
   const [draft, setDraft] = useState(initial);
+  // Changes after Discard, so every field draws the saved value again.
+  const [formKey, setFormKey] = useState(0);
   const [code, setCode] = useState("");
   const busy = fetcher.state !== "idle";
   const intent = busy ? fetcher.formData?.get("intent") : fetcher.data?.intent;
   const errors = busy ? [] : (fetcher.data?.errors ?? []);
+  // A new one can be saved as it starts, so its save bar shows from the start.
   const dirty = !automation || JSON.stringify(draft) !== JSON.stringify(saved);
   const rules = AUTOMATION_RULES[draft.kind];
   const isTemplate = Boolean(automation?.template);
+  const imageModes = useMemo(() => [draft.imageMode], [draft.imageMode]);
+
+  // Back to the Push notifications page, with the save bar out of the way first.
+  const leave = () => {
+    shopify.saveBar
+      .hide(SAVE_BAR)
+      .catch(() => {})
+      .finally(() => navigate("/app/push"));
+  };
 
   useEffect(() => {
-    void (dirty
-      ? shopify.saveBar.show(SAVE_BAR)
-      : shopify.saveBar.hide(SAVE_BAR));
-  }, [dirty, shopify]);
-  useEffect(() => () => void shopify.saveBar.hide(SAVE_BAR), [shopify]);
-
-  useEffect(() => {
-    if (busy || !fetcher.data || fetcher.data.errors.length > 0) return;
+    if (busy || !fetcher.data) return;
+    if (fetcher.data.errors.length > 0) {
+      shopify.toast.show(fetcher.data.errors[0] ?? "That wasn't saved", {
+        isError: true,
+      });
+      return;
+    }
     if (fetcher.data.intent === "test") {
       shopify.toast.show("Test sent. It reaches your phone within a minute.");
       return;
     }
     if (fetcher.data.intent === "delete") {
       shopify.toast.show("Automatic notification deleted");
-      navigate("/app/push");
+      leave();
       return;
     }
     setSaved(draft);
     shopify.toast.show("Saved");
-    if (!automation) navigate("/app/push");
+    if (!automation) leave();
     // Only once per answer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy, fetcher.data]);
@@ -253,6 +266,15 @@ export default function AutomationPage() {
       { intent: kind, automation: JSON.stringify(draft), code },
       { method: "POST" },
     );
+  // Discarding a new one drops it; otherwise the saved values come back.
+  const discard = () => {
+    if (!automation) {
+      leave();
+      return;
+    }
+    setDraft(saved);
+    setFormKey((key) => key + 1);
+  };
   // How the notification reads, with a stand-in for the product's name.
   const names = { product: "Black cotton T-shirt", store: appName };
 
@@ -261,19 +283,13 @@ export default function AutomationPage() {
       <s-link slot="breadcrumb-actions" href="/app/push">
         Push notifications
       </s-link>
-      {/* Discard asks first. */}
-      <ui-save-bar id={SAVE_BAR} discardConfirmation>
-        <button
-          variant="primary"
-          disabled={busy}
-          onClick={() => submit("save")}
-        >
-          Save
-        </button>
-        <button disabled={busy} onClick={() => setDraft(saved)}>
-          Discard
-        </button>
-      </ui-save-bar>
+      <SaveBar
+        id={SAVE_BAR}
+        dirty={dirty}
+        busy={busy}
+        onSave={() => submit("save")}
+        onDiscard={discard}
+      />
 
       {!ready && (
         <s-banner tone="warning" heading="Push notifications aren't ready">
@@ -303,7 +319,7 @@ export default function AutomationPage() {
       )}
 
       <s-section heading="When it sends">
-        <s-stack gap="base">
+        <s-stack gap="base" key={`when-${formKey}`}>
           <s-switch
             label="Send this automatically"
             details={automationWhen(draft.kind, draft.delay)}
@@ -367,7 +383,7 @@ export default function AutomationPage() {
       </s-section>
 
       <s-section heading="Message">
-        <s-stack gap="base">
+        <s-stack gap="base" key={`message-${formKey}`}>
           <s-text-field
             label="Title"
             value={draft.title}
@@ -384,7 +400,8 @@ export default function AutomationPage() {
           />
           <s-choice-list
             label="Picture"
-            values={[draft.imageMode]}
+            name="imageMode"
+            values={imageModes}
             onChange={(event) =>
               update({
                 imageMode: event.currentTarget.values[0] as AutomationImageMode,
@@ -442,6 +459,26 @@ export default function AutomationPage() {
           </s-stack>
         </s-box>
       </s-section>
+
+      <s-stack direction="inline" gap="small" alignItems="center">
+        <s-button
+          variant="primary"
+          disabled={!dirty || busy || undefined}
+          loading={(busy && intent === "save") || undefined}
+          onClick={() => submit("save")}
+        >
+          {automation ? "Save" : "Create automatic notification"}
+        </s-button>
+        {dirty && (
+          <s-button
+            variant="tertiary"
+            disabled={busy || undefined}
+            onClick={discard}
+          >
+            {automation ? "Discard changes" : "Cancel"}
+          </s-button>
+        )}
+      </s-stack>
 
       {automation && (
         <s-section heading="Results">

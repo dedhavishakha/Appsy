@@ -29,6 +29,11 @@ export const APP_RELEASES: readonly AppRelease[] = [
     change:
       "automatic notifications about the bag and the wishlist, with the product's name and picture",
   },
+  {
+    release: 3,
+    change:
+      "shopper sign-in with your store's Shopify customer accounts, and an Account tab with orders, addresses and profile",
+  },
 ];
 
 // The release a build started now gets.

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACCOUNT_FEATURE,
   BAG_REMINDER_DEFAULTS,
   createCatalog,
   createDefaultDesign,
+  setAccountClientId,
   setPushSettings,
   setSizeChartSettings,
   switchAppCodes,
@@ -23,7 +25,23 @@ describe("feature manifests", () => {
       "size-chart",
       "google-analytics",
       "push-notifications",
+      "account",
     ]);
+  });
+
+  // Appsy's Functionality page saves the store's client ID, and the switch adds the Account tab.
+  it("accept shopper accounts with the store's client ID, and refuse a broken one", () => {
+    const design = switchFeature(
+      setAccountClientId(createDefaultDesign({ defaultCountry: "IN" }), "8c0e2f6a-1b2c-4d3e"),
+      ACCOUNT_FEATURE,
+      true,
+    );
+    const result = validateDesign(design, catalog);
+    expect(result.success ? [] : result.issues).toEqual([]);
+    expect(design.navigation.tabs).toEqual(["home", "shop", "search", "wishlist", "account"]);
+
+    const broken = setAccountClientId(design, "no");
+    expect(validateDesign(broken, catalog).success).toBe(false);
   });
 
   // Appsy's Functionality page saves the bag reminder's settings.

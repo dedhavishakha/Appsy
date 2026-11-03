@@ -30,13 +30,20 @@ const APPLE_HELP = {
     "https://developer.apple.com/help/app-store-connect/manage-app-information/manage-app-privacy",
 };
 
+const SHOPIFY_HELP = {
+  customerData:
+    "https://help.shopify.com/en/manual/privacy-and-security/privacy/processing-customer-data-requests",
+};
+
 type Props = {
   appName: string;
   policy: PrivacyPolicy;
   // Whether each platform's app sends Google Analytics its events, and whether the app has
-  // push notifications (Functionality page).
+  // push notifications and shopper accounts (Functionality page), with the account deletion
+  // page Google Play asks for.
   googleAnalytics: { android: boolean; ios: boolean };
   pushNotifications: boolean;
+  accounts: { deletionPage: string; signInWithShop: boolean } | null;
 };
 
 export function PrivacyForms({
@@ -44,19 +51,24 @@ export function PrivacyForms({
   policy,
   googleAnalytics,
   pushNotifications,
+  accounts,
 }: Props) {
   const shopify = useAppBridge();
+  const withAccounts = accounts !== null;
   const text = appPolicyText(appName, {
     googleAnalytics: googleAnalytics.android || googleAnalytics.ios,
     pushNotifications,
+    accounts: withAccounts,
   });
   const items = dataSafetyItems({
     googleAnalytics: googleAnalytics.android,
     pushNotifications,
+    accounts: withAccounts,
   });
   const appleItems = appPrivacyItems({
     googleAnalytics: googleAnalytics.ios,
     pushNotifications,
+    accounts: withAccounts,
   });
   const providers = [
     "Appsy",
@@ -156,20 +168,60 @@ export function PrivacyForms({
             Does your app collect or share required data types? Yes.
           </s-list-item>
           <s-list-item>Is all of it encrypted in transit? Yes.</s-list-item>
-          <s-list-item>
-            Accounts: tick &quot;My app does not allow users to create an
-            account&quot;, then answer No to &quot;Can users login to your app
-            with accounts created outside of the app?&quot; Shoppers don&apos;t
-            sign in to your app at all.
-          </s-list-item>
+          {accounts ? (
+            <s-list-item>
+              Accounts: answer that your app lets users create an account.
+              Shoppers sign in on your store&apos;s Shopify sign-in page, which
+              creates their customer account the first time, and Google counts
+              account creation outside the app too. As the link where users can
+              ask for their account and data to be deleted, give your account
+              deletion page below.
+            </s-list-item>
+          ) : (
+            <s-list-item>
+              Accounts: tick &quot;My app does not allow users to create an
+              account&quot;, then answer No to &quot;Can users login to your app
+              with accounts created outside of the app?&quot; Shoppers
+              don&apos;t sign in to your app at all.
+            </s-list-item>
+          )}
           <s-list-item>
             Do you provide a way for users to request that their data is
             deleted? Yes: turning off usage data
             {pushNotifications ? " or notifications" : ""} in the app deletes
-            what it sent, and shoppers can ask you about the rest through your
-            privacy policy.
+            what it sent
+            {accounts
+              ? ", Delete account in the app's Account tab and your account deletion page delete the shopper's account,"
+              : ","}{" "}
+            and shoppers can ask you about the rest through your privacy policy.
           </s-list-item>
         </s-unordered-list>
+        {accounts && (
+          <s-stack gap="small">
+            <s-grid gridTemplateColumns="1fr auto" gap="small" alignItems="end">
+              <s-text-field
+                label="Account deletion page"
+                value={accounts.deletionPage}
+                readOnly
+              />
+              <s-button
+                onClick={() => void copy(accounts.deletionPage, "Link copied")}
+              >
+                Copy link
+              </s-button>
+            </s-grid>
+            <s-paragraph color="subdued">
+              It names your app, says what&apos;s deleted and kept, and gives
+              your store&apos;s public contact email for shoppers without the
+              app. When one writes to you, erase their personal data in Shopify,
+              on the customer&apos;s page; Shopify explains how in{" "}
+              <s-link href={SHOPIFY_HELP.customerData} target="_blank">
+                Processing customer data requests
+              </s-link>
+              .
+            </s-paragraph>
+          </s-stack>
+        )}
         <s-paragraph>
           Under Data types, tick these {items.length} and nothing else.
           They&apos;re in the order Play Console lists them. Under Data usage
@@ -221,12 +273,24 @@ export function PrivacyForms({
             Appsy&apos;s app has no ad networks, and your banners and products
             are your store&apos;s own content.
           </s-list-item>
-          <s-list-item>
-            <s-text type="strong">Sign-in details:</s-text> answer No to
-            &quot;Is any part of your app restricted?&quot; No part of your app
-            needs a login, and no content requires payment: shoppers pay only
-            for your products, at checkout.
-          </s-list-item>
+          {accounts ? (
+            <s-list-item>
+              <s-text type="strong">Sign-in details:</s-text> everything works
+              without signing in except the Account tab, so answer that part of
+              your app is restricted, and tell Google how to sign in: on the
+              Account tab, with any email address they can read. Shopify emails
+              a 6-digit code and creates the account the first time. No content
+              requires payment: shoppers pay only for your products, at
+              checkout.
+            </s-list-item>
+          ) : (
+            <s-list-item>
+              <s-text type="strong">Sign-in details:</s-text> answer No to
+              &quot;Is any part of your app restricted?&quot; No part of your
+              app needs a login, and no content requires payment: shoppers pay
+              only for your products, at checkout.
+            </s-list-item>
+          )}
           <s-list-item>
             <s-text type="strong">Target audience:</s-text> choose your
             shoppers&apos; age groups: usually 13–15, 16–17 and 18 and over, or
@@ -310,6 +374,18 @@ export function PrivacyForms({
           and for Phone Number if you send offers by text. Then, next to Privacy
           Policy, click Edit and enter your privacy policy link from step 1.
         </s-paragraph>
+        {accounts && (
+          <s-paragraph>
+            For App Review, tell Apple in your app&apos;s App Review Information
+            that signing in is optional and needs no password: on the Account
+            tab, reviewers sign in with any email address they can read, Shopify
+            emails a 6-digit code and creates the account the first time, and
+            Delete account is on the same tab.
+            {accounts.signInWithShop
+              ? " Add that the sign-in page is your store's own Shopify customer account sign-in, where Shopify, the platform your store runs on, also offers Sign in with Shop."
+              : ""}
+          </s-paragraph>
+        )}
         <s-paragraph color="subdued">
           Apple counts what your app&apos;s web pages collect too, such as your
           checkout: if apps or pixels in your checkout collect shoppers&apos;

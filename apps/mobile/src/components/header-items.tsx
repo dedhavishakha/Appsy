@@ -1,9 +1,11 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, View } from "react-native";
+import { useAccount } from "@/lib/account";
 import { useSettings } from "@/lib/app-settings";
 import { flagFor, useCountry } from "@/lib/country";
 import { currencyFlag, useCurrency } from "@/lib/currency";
+import { isPreview } from "@/lib/settings";
 import { BagButton } from "./bag-button";
 import { MenuButton } from "./menu-drawer";
 import { Text } from "./text";
@@ -14,6 +16,7 @@ export function HeaderItems({ ids }: { ids: string[] }) {
   const settings = useSettings();
   const { countries } = useCountry();
   const { enabled: converting } = useCurrency();
+  const account = useAccount();
   const items = ids.flatMap((id) => {
     switch (id) {
       // The side menu always has Privacy choices, so the button always shows.
@@ -28,12 +31,32 @@ export function HeaderItems({ ids }: { ids: string[] }) {
         return countries.length > 1 ? [<CountryButton key={id} />] : [];
       case "bag":
         return [<BagButton key={id} />];
+      // Like the Account tab: needs a build that can sign in (and shows in the preview).
+      case "account":
+        return account.offered && (account.supported || isPreview)
+          ? [<AccountButton key={id} />]
+          : [];
       default:
         return [];
     }
   });
   if (items.length === 0) return null;
   return <View style={styles.row}>{items}</View>;
+}
+
+function AccountButton() {
+  const { colors } = useSettings().theme;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Account"
+      hitSlop={8}
+      onPress={() => router.navigate("/account")}
+      style={styles.button}
+    >
+      <Ionicons name="person-outline" size={22} color={colors.text} />
+    </Pressable>
+  );
 }
 
 function SearchButton() {

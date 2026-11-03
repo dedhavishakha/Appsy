@@ -25,6 +25,7 @@ import {
   summarize,
   type SettingTools,
 } from "../components/setting-control";
+import { SaveBar } from "../components/save-bar";
 import { Sortable } from "../components/sortable";
 import { ThemeSettings } from "../components/theme-settings";
 import { usePickImage } from "../components/use-pick-image";
@@ -220,15 +221,9 @@ function Editor() {
   const result = busy ? undefined : fetcher.data;
   const issues = result?.issues ?? [];
 
-  // Shopify's save bar shows while the design differs from the saved one (Save Bar API,
-  // programmatic). A form's data-save-bar can't see changes in a hidden field, which is
-  // why it stayed away until the first save (found 2026-10-26).
-  useEffect(() => {
-    void (dirty
-      ? shopify.saveBar.show(SAVE_BAR_ID)
-      : shopify.saveBar.hide(SAVE_BAR_ID));
-  }, [dirty, shopify]);
-
+  // Shopify's save bar shows while the design differs from the saved one (components/
+  // save-bar.tsx). A form's data-save-bar can't see changes in a hidden field, which is why
+  // it stayed away until the first save (found 2026-10-26).
   useEffect(() => {
     shopify.loading(busy);
   }, [busy, shopify]);
@@ -561,16 +556,14 @@ function Editor() {
           : "Live"}
       </s-badge>
 
-      {/* Shopify's save bar: Save and Discard while there are unsaved changes. Discard
-          asks first. */}
-      <ui-save-bar id={SAVE_BAR_ID} discardConfirmation>
-        <button variant="primary" disabled={busy} onClick={save}>
-          Save
-        </button>
-        <button disabled={busy} onClick={discard}>
-          Discard
-        </button>
-      </ui-save-bar>
+      {/* Shopify's save bar: Save and Discard while there are unsaved changes. */}
+      <SaveBar
+        id={SAVE_BAR_ID}
+        dirty={dirty}
+        busy={busy}
+        onSave={save}
+        onDiscard={discard}
+      />
 
       <s-stack gap="base">
         {issues.length > 0 && (
