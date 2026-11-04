@@ -167,8 +167,7 @@ const APP_HANDLE_QUERY = `#graphql
 // Appsy's handle, the same for every store; Shopify's plan page address needs it.
 let appHandle: string | null = null;
 
-// Shopify's plan page for the store, which Appsy opens outside its frame (target _top).
-export async function planPageUrl(admin: AdminApiContext, shopDomain: string) {
+async function loadAppHandle(admin: AdminApiContext) {
   if (!appHandle) {
     const response = await admin.graphql(APP_HANDLE_QUERY);
     const { data } = (await response.json()) as {
@@ -176,8 +175,19 @@ export async function planPageUrl(admin: AdminApiContext, shopDomain: string) {
     };
     appHandle = data.currentAppInstallation.app.handle;
   }
+  return appHandle;
+}
+
+// Shopify's plan page for the store, which Appsy opens outside its frame (target _top).
+export async function planPageUrl(admin: AdminApiContext, shopDomain: string) {
   const storeHandle = shopDomain.replace(".myshopify.com", "");
-  return `https://admin.shopify.com/store/${storeHandle}/charges/${appHandle}/pricing_plans`;
+  return `https://admin.shopify.com/store/${storeHandle}/charges/${await loadAppHandle(admin)}/pricing_plans`;
+}
+
+// The same page for links inside Appsy ("Change plan"): App Bridge opens shopify:admin
+// links in the Shopify admin itself, like Home's link to Products.
+export async function planPageHref(admin: AdminApiContext) {
+  return `shopify://admin/charges/${await loadAppHandle(admin)}/pricing_plans`;
 }
 
 // --- The daily check ------------------------------------------------------------------

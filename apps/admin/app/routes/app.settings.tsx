@@ -3,6 +3,7 @@ import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { hasPerk, planOf } from "@appsy/app-config";
 import { authenticate } from "../shopify.server";
+import { usePlansHref } from "../components/plan-note";
 import { savedStorePlan } from "../models/plans.server";
 import { ensureShopSetup } from "../models/shop.server";
 
@@ -46,6 +47,7 @@ const dateOf = (iso: string) =>
 
 export default function Settings() {
   const { plan, support } = useLoaderData<typeof loader>();
+  const plansHref = usePlansHref();
 
   return (
     <s-page heading="Settings">
@@ -61,9 +63,11 @@ export default function Settings() {
                 Your free trial ends on {dateOf(plan.trialEndsAt)}.
               </s-paragraph>
             )}
-            <s-stack direction="inline">
-              <s-button href="/app/plans">Change plan</s-button>
-            </s-stack>
+            {plansHref && (
+              <s-stack direction="inline">
+                <s-button href={plansHref}>Change plan</s-button>
+              </s-stack>
+            )}
           </s-stack>
         </s-section>
       )}

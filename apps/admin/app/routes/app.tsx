@@ -4,7 +4,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
 import { authenticate } from "../shopify.server";
-import { currentPlan, planPageUrl } from "../models/plans.server";
+import { currentPlan, planPageHref, planPageUrl } from "../models/plans.server";
 import { ensureShopSetup } from "../models/shop.server";
 import { ensureStorefrontToken } from "../models/storefront-token.server";
 
@@ -30,8 +30,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     console.error(`Storefront token for ${session.shop}:`, error),
   );
 
-  // eslint-disable-next-line no-undef
-  return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+  return {
+    // eslint-disable-next-line no-undef
+    apiKey: process.env.SHOPIFY_API_KEY || "",
+    // Where "Change plan" goes (components/plan-note.tsx, Settings).
+    plansHref: await planPageHref(admin),
+  };
 };
 
 export default function App() {
