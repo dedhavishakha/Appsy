@@ -15,8 +15,18 @@ import process from "node:process";
 
 // Fields the secret may hold besides the database login, so they needn't sit in an env file.
 // EXPO_TOKEN is the Expo robot user's token, which merchants' builds run with
-// (app/models/eas.server.ts).
-const EXTRA_SECRETS = ["SHOPIFY_API_SECRET", "EXPO_TOKEN"];
+// (app/models/eas.server.ts). The SHOPIFY_PARTNER_* fields and SHOPIFY_APP_GID let Appsy read
+// stores' plans from the Partner API (app/models/plans.server.ts); without them every store
+// keeps everything. APPSY_SUPPORT_EMAIL and APPSY_DEDICATED_SUPPORT are shown on Settings.
+const EXTRA_SECRETS = [
+  "SHOPIFY_API_SECRET",
+  "EXPO_TOKEN",
+  "SHOPIFY_PARTNER_ORG_ID",
+  "SHOPIFY_PARTNER_API_ACCESS_TOKEN",
+  "SHOPIFY_APP_GID",
+  "APPSY_SUPPORT_EMAIL",
+  "APPSY_DEDICATED_SUPPORT",
+];
 
 async function readSecret() {
   const { AWS_REGION: region, AWS_SECRET_ARN: secretId } = process.env;

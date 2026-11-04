@@ -6,6 +6,8 @@ import {
   createCatalog,
   defaultBlocksOf,
   defaultPageSections,
+  designForPlan,
+  hasPerk,
   migrateDesign,
   PAGE_NAMES,
   publishedSettingsSchema,
@@ -19,6 +21,7 @@ import {
   type DesignIssue,
   type PackageManifest,
   type PageName,
+  type PlanAccess,
   type PublishedSettings,
   type SettingsForm,
   type ShopDetails,
@@ -29,6 +32,7 @@ import { SECTION_MANIFESTS } from "@appsy/sections/manifests";
 import db from "../db.server";
 import { apiVersion } from "../shopify.server";
 import { loadChannel, reportSetup } from "./channel.server";
+import { planAccessOf } from "./plan-access.server";
 import type { ShopSetup } from "./shop.server";
 import { publicUrl, putPublicFile, readPublicFile } from "./storage.server";
 import { storefrontQuery } from "./storefront.server";
@@ -557,6 +561,41 @@ export async function applySetting(
   return { issues: [], number, live: true };
 }
 
+// After the store's plan changed (plans.server.ts), phones get the live design as the new plan
+// allows, as a new published version; the editor's draft stays as it is. Nothing happens
+// before the first publish, or when both plans give phones the same app.
+export async function applyPlan(
+  admin: AdminApiContext,
+  shop: ShopSetup,
+  before: PlanAccess,
+  appUrl: string,
+) {
+  const after = planAccessOf(shop);
+  if (!after) return;
+  const live = await db.configVersion.findFirst({
+    where: { appProjectId: shop.appProject.id, status: "published" },
+  });
+  if (!live) return;
+  const design = appDesignSchema.parse(
+    migrateDesign(live.json, live.schemaVersion),
+  );
+  const forPlan = (access: PlanAccess) =>
+    JSON.stringify(designForPlan(design, access, catalog));
+  if (
+    hasPerk(before, "iphone") === hasPerk(after, "iphone") &&
+    forPlan(before) === forPlan(after)
+  ) {
+    return;
+  }
+  const result = await applySetting(admin, shop, appUrl, (same) => same, null);
+  if (result.issues.length > 0) {
+    console.error(
+      `The ${after} plan's app for ${shop.shopDomain} not published:`,
+      result.issues.map((issue) => issue.message).join("; "),
+    );
+  }
+}
+
 // The app's name from the setup guide on Home, which the app shows when there's no logo.
 function appIdentity(shop: ShopSetup): AppIdentity | undefined {
   const name = shop.appProject.appName.trim();
@@ -564,7 +603,8 @@ function appIdentity(shop: ShopSetup): AppIdentity | undefined {
 }
 
 // Writes a version's public file and points live.json at it, after the checks the app needs
-// to work and to pass Apple's and Google's review.
+// to work and to pass Apple's and Google's review. Phones get the design as the store's plan
+// allows (app-config plans.ts).
 async function writeLiveFile(
   admin: AdminApiContext,
   shop: ShopSetup,
@@ -575,6 +615,12 @@ async function writeLiveFile(
   { issues: DesignIssue[] } | { file: PublishedSettings; key: string }
 > {
   const appProjectId = shop.appProject.id;
+  const access = planAccessOf(shop);
+  if (!access) {
+    return {
+      issues: [{ path: [], message: "Choose an Appsy plan first." }],
+    };
+  }
   // Without the channel, the app shows no products and its orders aren't credited to it.
   const channel = await loadChannel(admin, shop);
   if (!channel) {
@@ -618,7 +664,7 @@ async function writeLiveFile(
   }
 
   const file = buildPublishedSettings({
-    design,
+    design: designForPlan(design, access, catalog),
     version: number,
     publishedAt: new Date(),
     shop: {
@@ -642,6 +688,16 @@ async function writeLiveFile(
     app: appIdentity(shop),
   });
 
+  // On a plan without iPhone apps, iPhones stay on the version published when the store moved
+  // to it (apps/mobile src/lib/settings.ts reads iosVersion); Android phones get every one.
+  const { iosHeldVersion } = await db.appProject.findUniqueOrThrow({
+    where: { id: appProjectId },
+    select: { iosHeldVersion: true },
+  });
+  const iosVersion = hasPerk(access, "iphone")
+    ? null
+    : (iosHeldVersion ?? number);
+
   const key = versionKey(appProjectId, number);
   await putPublicFile(key, JSON.stringify(file));
   await putPublicFile(
@@ -650,7 +706,14 @@ async function writeLiveFile(
       version: number,
       url: publicUrl(appUrl, key),
       minRuntime: file.minRuntime,
+      ...(iosVersion === null ? {} : { iosVersion }),
     }),
   );
+  if (iosVersion !== iosHeldVersion) {
+    await db.appProject.update({
+      where: { id: appProjectId },
+      data: { iosHeldVersion: iosVersion },
+    });
+  }
   return { file, key };
 }

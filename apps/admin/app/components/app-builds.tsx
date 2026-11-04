@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useFetcher, useRevalidator } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
+import type { PlanHandle } from "@appsy/app-config";
 import {
   ACTIVE_STATUSES,
   type BuildIntent,
@@ -9,6 +10,7 @@ import {
   type BuildRow,
   type BuildStatus,
 } from "../models/builds";
+import { PlanNote } from "./plan-note";
 
 // Building the merchant's app and uploading it for testing, on the Publishing page
 // (models/builds.server.ts): Android to Google Play's internal testing track, iPhone to App
@@ -95,6 +97,8 @@ type Props = {
   // What changed since each platform's last build (models/build-contents.server.ts).
   rebuild: Record<Platform, string[]>;
   builds: BuildRow[];
+  // The plan with iPhone apps, when the store's plan has none.
+  iphoneUpgrade: PlanHandle | null;
 };
 
 // How a new build reaches testers.
@@ -104,7 +108,13 @@ const REBUILD_STEP: Record<Platform, string> = {
   ios: "Click Build iPhone app below. Testers get it in TestFlight once Apple has processed it.",
 };
 
-export function AppBuilds({ android, ios, rebuild, builds }: Props) {
+export function AppBuilds({
+  android,
+  ios,
+  rebuild,
+  builds,
+  iphoneUpgrade,
+}: Props) {
   const fetcher = useFetcher<BuildResult>();
   const shopify = useAppBridge();
   const { revalidate } = useRevalidator();
@@ -206,7 +216,13 @@ export function AppBuilds({ android, ios, rebuild, builds }: Props) {
         )}
 
         {platformBlock("android", android, "build-android")}
-        {platformBlock("ios", ios, "build-ios")}
+        {iphoneUpgrade ? (
+          <PlanNote plan={iphoneUpgrade}>
+            <s-paragraph>Your plan includes the Android app.</s-paragraph>
+          </PlanNote>
+        ) : (
+          platformBlock("ios", ios, "build-ios")
+        )}
 
         {builds.length > 0 && (
           <s-table>

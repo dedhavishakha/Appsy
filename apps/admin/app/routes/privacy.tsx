@@ -7,8 +7,8 @@ import {
 import { LegalDocument } from "../components/public-page";
 
 // Appsy's own privacy policy (separate from each store's policy, which its app also links
-// to). A DRAFT written 2026-10-21 from the data Appsy handles today (docs/05, sections 7 and
-// 9); Scopegen fills in the [bracketed] details and has a lawyer review it before launch.
+// to). Written 2026-10-21 from the data Appsy handles today (docs/05, sections 7 and 9);
+// Scopegen's details (name, address, contact, log keeping) filled in 2026-11-04.
 // Keep it in step with the code: a new kind of data means a change here first, and in the
 // section stores add to their own policy (packages/app-config/src/privacy.ts).
 
@@ -16,14 +16,15 @@ export const meta: MetaFunction = () => [{ title: "Appsy privacy policy" }];
 
 export default function Privacy() {
   return (
-    <LegalDocument title="Appsy privacy policy" updated="2 November 2026">
+    <LegalDocument title="Appsy privacy policy" updated="4 November 2026">
       <h2>1. Who we are</h2>
       <p>
-        Appsy is made by [Scopegen&apos;s legal name], of [registered address]
-        (&quot;Scopegen&quot;, &quot;we&quot;). This policy explains what Appsy
-        collects from merchants who install it and from shoppers who use apps
-        built with it, and how we use that data. Each store&apos;s own privacy
-        policy also applies to its app.
+        Appsy is made by Scopegen India Pvt Ltd, of Bhutani Alphathum, Sector
+        90, Noida, Uttar Pradesh 201305, India (&quot;Scopegen&quot;,
+        &quot;we&quot;). This policy explains what Appsy collects from merchants
+        who install it and from shoppers who use apps built with it, and how we
+        use that data. Each store&apos;s own privacy policy also applies to its
+        app.
       </p>
 
       <h2>2. Data from merchants</h2>
@@ -181,8 +182,8 @@ export default function Privacy() {
           uninstall Appsy.
         </li>
         <li>
-          Server logs (such as IP address, time and page requested): [retention
-          period], for security.
+          Server logs (such as IP address, time and page requested): 30 days,
+          for security.
         </li>
       </ul>
 
@@ -217,7 +218,12 @@ export default function Privacy() {
       </p>
 
       <h2>11. Contact</h2>
-      <p>Privacy questions: [contact email], [registered address].</p>
+      <p>
+        Privacy questions:{" "}
+        <a href="mailto:support@scopegen.in">support@scopegen.in</a>, or by post
+        to Scopegen India Pvt Ltd, Bhutani Alphathum, Sector 90, Noida, Uttar
+        Pradesh 201305, India.
+      </p>
     </LegalDocument>
   );
 }

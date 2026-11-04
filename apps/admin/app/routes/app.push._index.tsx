@@ -8,8 +8,10 @@ import { useFetcher, useLoaderData, useRevalidator } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { z } from "zod";
-import { pushOn } from "@appsy/app-config";
+import { pushOn, upgradeFor } from "@appsy/app-config";
 import { authenticate } from "../shopify.server";
+import { PlanNote } from "../components/plan-note";
+import { planAccessOf } from "../models/plan-access.server";
 import { ensureShopSetup } from "../models/shop.server";
 import { loadDesign } from "../models/design.server";
 import {
@@ -49,6 +51,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return {
     on: pushOn(design),
     keys: { android: keys.firebase !== null, ios: keys.apple !== null },
+    // Automatic notifications are on the Pro and Advanced plans; campaigns on every plan.
+    automationsUpgrade: upgradeFor(planAccessOf(shop), "automations"),
     automations,
     ...list,
   };
@@ -62,10 +66,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const form = await request.formData();
   const automation = z.uuid().safeParse(form.get("automation"));
   if (automation.success) {
+    const enabled = form.get("enabled") === "on";
+    // Not on the store's plan: they can only be switched off.
+    if (enabled && upgradeFor(planAccessOf(shop), "automations")) {
+      return { canceled: false, switched: null };
+    }
     const row = await setAutomationEnabled(
       shop.appProject.id,
       automation.data,
-      form.get("enabled") === "on",
+      enabled,
     );
     if (row) {
       await syncLegacyBagReminder(admin, shop, row, sessionToken?.sub ?? null);
@@ -100,7 +109,7 @@ const count = (number: number, one: string) =>
   `${number.toLocaleString("en")} ${one}${number === 1 ? "" : "s"}`;
 
 export default function PushNotificationsPage() {
-  const { on, keys, automations, campaigns, phones } =
+  const { on, keys, automationsUpgrade, automations, campaigns, phones } =
     useLoaderData<typeof loader>();
   const { revalidate } = useRevalidator();
   const ready = keys.android || keys.ios;
@@ -142,37 +151,47 @@ export default function PushNotificationsPage() {
       )}
 
       <s-section heading="Automatic notifications">
-        <s-stack gap="base">
-          <s-paragraph color="subdued">
-            Sent by themselves when something happens in your app, with the
-            product&apos;s name, and its picture on Android phones. A phone gets
-            at most 2 a day, and none between 21:00 and 09:00 where it is. They
-            reach phones with your app&apos;s latest build.
-          </s-paragraph>
-          <s-table>
-            <s-table-header-row>
-              <s-table-header listSlot="primary">Notification</s-table-header>
-              <s-table-header listSlot="secondary">Sends</s-table-header>
-              <s-table-header listSlot="labeled" format="numeric">
-                Reached
-              </s-table-header>
-              <s-table-header listSlot="labeled" format="numeric">
-                Opened
-              </s-table-header>
-              <s-table-header listSlot="inline">On</s-table-header>
-            </s-table-header-row>
-            <s-table-body>
-              {automations.map((automation) => (
-                <AutomationLine key={automation.id} automation={automation} />
-              ))}
-            </s-table-body>
-          </s-table>
-          <s-stack direction="inline">
-            <s-button href="/app/push/automations/new">
-              Create automatic notification
-            </s-button>
+        {automationsUpgrade ? (
+          <PlanNote plan={automationsUpgrade}>
+            <s-paragraph>
+              Reminders that send by themselves, like the abandoned bag and
+              wishlist reminders. Your plan includes notifications you send
+              yourself, below.
+            </s-paragraph>
+          </PlanNote>
+        ) : (
+          <s-stack gap="base">
+            <s-paragraph color="subdued">
+              Sent by themselves when something happens in your app, with the
+              product&apos;s name, and its picture on Android phones. A phone
+              gets at most 2 a day, and none between 21:00 and 09:00 where it
+              is. They reach phones with your app&apos;s latest build.
+            </s-paragraph>
+            <s-table>
+              <s-table-header-row>
+                <s-table-header listSlot="primary">Notification</s-table-header>
+                <s-table-header listSlot="secondary">Sends</s-table-header>
+                <s-table-header listSlot="labeled" format="numeric">
+                  Reached
+                </s-table-header>
+                <s-table-header listSlot="labeled" format="numeric">
+                  Opened
+                </s-table-header>
+                <s-table-header listSlot="inline">On</s-table-header>
+              </s-table-header-row>
+              <s-table-body>
+                {automations.map((automation) => (
+                  <AutomationLine key={automation.id} automation={automation} />
+                ))}
+              </s-table-body>
+            </s-table>
+            <s-stack direction="inline">
+              <s-button href="/app/push/automations/new">
+                Create automatic notification
+              </s-button>
+            </s-stack>
           </s-stack>
-        </s-stack>
+        )}
       </s-section>
 
       <s-section heading="Your notifications">

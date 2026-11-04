@@ -53,13 +53,17 @@ export async function ensureShopSetup(
         create: { shopDomain, shopGid: data.shop.id },
         // Reinstalled before Shopify's shop/redact arrived: the merchant's work is still here.
         // The saved Storefront token is cleared so it's looked up again: Shopify's docs don't
-        // say whether an uninstall revokes it.
+        // say whether an uninstall revokes it. So is the plan: the store approves one again
+        // (App Store requirement 1.2.2).
         update: existing?.uninstalledAt
           ? {
               uninstalledAt: null,
               installedAt: new Date(),
               storefrontTokenGid: null,
               storefrontToken: null,
+              plan: null,
+              planTrialEndsAt: null,
+              planCheckedAt: null,
             }
           : {},
         include: { appProject: true },

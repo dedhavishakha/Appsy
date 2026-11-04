@@ -17,6 +17,7 @@ import {
 import db from "../db.server";
 import { apnsSender } from "./apns.server";
 import { loadFirebase } from "./google-analytics.server";
+import { allows, planAccessForApp, planAccessOf } from "./plan-access.server";
 import { APPLE_KEY_ID, storeAccountsSchema } from "./store-accounts";
 import { googleToken } from "./store-apis.server";
 import {
@@ -514,6 +515,11 @@ export async function sendTest(
   }
   const phone = phones[0]!;
   const iphone = phone.platform === "ios";
+  if (iphone && !allows(await planAccessForApp(appProjectId), "iphone")) {
+    return [
+      "This code is an iPhone's. iPhone apps are on the Pro and Advanced plans.",
+    ];
+  }
   const project = await db.appProject.findUnique({
     where: { id: appProjectId },
     select: { iosBundleId: true },
@@ -837,7 +843,8 @@ export const notSent = (stopped: Partial<Record<Platform, string>>) =>
 
 // Sends a claimed campaign page by page, saving its progress after each page so a restart
 // carries on from the last phone it reached. It goes to the platforms the app has keys for
-// now; a problem with one platform's key stops sending to that platform only.
+// now, and its plan includes (iPhones from Pro up); a problem with one platform's key stops
+// sending to that platform only.
 async function sendCampaign(id: string) {
   const campaign = await db.pushCampaign.findUnique({
     where: { id },
@@ -845,7 +852,7 @@ async function sendCampaign(id: string) {
       appProject: {
         select: {
           iosBundleId: true,
-          shop: { select: { uninstalledAt: true } },
+          shop: { select: { uninstalledAt: true, plan: true } },
         },
       },
     },
@@ -859,10 +866,19 @@ async function sendCampaign(id: string) {
     );
     return;
   }
+  const access = planAccessOf(campaign.appProject.shop);
+  if (!access) {
+    await finish(id, "canceled", "Not sent: the store has no Appsy plan.");
+    return;
+  }
   const senders = sendersFor(
     await getStoreKeys(campaign.appProjectId),
     campaign.appProject.iosBundleId,
   );
+  if (!allows(access, "iphone") && senders.ios) {
+    senders.ios.close();
+    delete senders.ios;
+  }
   const platforms = Object.keys(senders) as Platform[];
   if (platforms.length === 0) {
     await finish(

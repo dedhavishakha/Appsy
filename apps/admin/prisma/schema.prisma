@@ -75,6 +75,12 @@ model Shop {
   // Public by Shopify's design: every phone app gets it in the published settings file.
   storefrontToken    String?
   channelState       ChannelState @default(pending)
+  // The store's Appsy plan as Shopify App Pricing last said (models/plans.server.ts): "standard",
+  // "pro" or "advanced", or null with no active plan. Checked again when Appsy opens, at most
+  // every few minutes, and once a day; cleared on a reinstall.
+  plan               String?
+  planTrialEndsAt    DateTime?
+  planCheckedAt      DateTime?
   installedAt        DateTime     @default(now())
   uninstalledAt      DateTime?
   createdAt          DateTime     @default(now())
@@ -113,6 +119,9 @@ model AppProject {
   // project and service account, the Apple push key's ID and team, and when Appsy checked
   // each (models/push.server.ts). The keys themselves are only in the vault.
   push            Json?
+  // On a plan without iPhone apps, the design version iPhones stay on (live.json's
+  // iosVersion): the one published when the store moved to that plan. Null otherwise.
+  iosHeldVersion  Int?
   status          AppStatus        @default(setup)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt

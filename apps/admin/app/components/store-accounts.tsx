@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useFetcher } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
+import type { PlanHandle } from "@appsy/app-config";
 import {
   APP_ID,
   APP_ID_MAX,
@@ -11,6 +12,7 @@ import {
   type StoreIntent,
   type StoreResult,
 } from "../models/store-accounts";
+import { PlanNote } from "./plan-note";
 
 // The merchant's App ID and store accounts, on the Publishing page. Key files are read in
 // the browser, sent once to Appsy, tested with Apple or Google, kept in the vault and never
@@ -21,12 +23,15 @@ type Props = {
   appId: string | null;
   suggestedAppId: string;
   accounts: StoreAccounts;
+  // The plan with iPhone apps, when the store's plan has none.
+  iphoneUpgrade: PlanHandle | null;
 };
 
 export function StoreAccountsSection({
   appId,
   suggestedAppId,
   accounts,
+  iphoneUpgrade,
 }: Props) {
   return (
     <s-section heading="Store accounts">
@@ -42,7 +47,16 @@ export function StoreAccountsSection({
           locked={Boolean(accounts.google)}
         />
         <s-divider />
-        <AppleAccount appId={appId} apple={accounts.apple} />
+        {iphoneUpgrade ? (
+          <s-stack gap="base">
+            <s-heading>Apple App Store</s-heading>
+            <PlanNote plan={iphoneUpgrade}>
+              <s-paragraph>Your plan includes the Android app.</s-paragraph>
+            </PlanNote>
+          </s-stack>
+        ) : (
+          <AppleAccount appId={appId} apple={accounts.apple} />
+        )}
         <s-divider />
         <GoogleAccount appId={appId} google={accounts.google} />
       </s-stack>

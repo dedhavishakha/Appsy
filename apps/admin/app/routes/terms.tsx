@@ -2,8 +2,8 @@ import type { MetaFunction } from "react-router";
 import { LegalDocument } from "../components/public-page";
 
 // Appsy's terms and conditions: public, opened in a new window from Home and Settings (App
-// Store requirement 5.7.7). A DRAFT written 2026-10-21 from what Appsy does today; Scopegen
-// fills in the [bracketed] details and has a lawyer review it before Appsy's review.
+// Store requirement 5.7.7). Written 2026-10-21 from what Appsy does today; Scopegen's details
+// (name, address, courts, contact) filled in 2026-11-04.
 
 export const meta: MetaFunction = () => [
   { title: "Appsy terms and conditions" },
@@ -11,16 +11,17 @@ export const meta: MetaFunction = () => [
 
 export default function Terms() {
   return (
-    <LegalDocument title="Appsy terms and conditions" updated="21 October 2026">
+    <LegalDocument title="Appsy terms and conditions" updated="4 November 2026">
       <h2>1. About these terms</h2>
       <p>
         These terms are an agreement between you, the Shopify merchant who
-        installs Appsy (&quot;you&quot;), and [Scopegen&apos;s legal name], of
-        [registered address] (&quot;Scopegen&quot;, &quot;we&quot;). They apply
-        when you install or use Appsy, Scopegen&apos;s app for building mobile
-        shopping apps from a Shopify store. By installing Appsy or clicking
-        Connect in Appsy, you agree to them. If you use Appsy for a business,
-        you confirm that you may accept these terms for it.
+        installs Appsy (&quot;you&quot;), and Scopegen India Pvt Ltd, of Bhutani
+        Alphathum, Sector 90, Noida, Uttar Pradesh 201305, India
+        (&quot;Scopegen&quot;, &quot;we&quot;). They apply when you install or
+        use Appsy, Scopegen&apos;s app for building mobile shopping apps from a
+        Shopify store. By installing Appsy or clicking Connect in Appsy, you
+        agree to them. If you use Appsy for a business, you confirm that you may
+        accept these terms for it.
       </p>
 
       <h2>2. What Appsy does</h2>
@@ -151,12 +152,15 @@ export default function Terms() {
 
       <h2>14. Governing law</h2>
       <p>
-        [Governing law and courts, for example: the laws of India and the courts
-        of [city]].
+        These terms are governed by the laws of India. The courts at Noida
+        (Gautam Buddh Nagar), Uttar Pradesh, decide any dispute about them.
       </p>
 
       <h2>15. Contact</h2>
-      <p>Questions about these terms: [contact email].</p>
+      <p>
+        Questions about these terms:{" "}
+        <a href="mailto:support@scopegen.in">support@scopegen.in</a>.
+      </p>
     </LegalDocument>
   );
 }

@@ -4,12 +4,26 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
 import { authenticate } from "../shopify.server";
+import { currentPlan, planPageUrl } from "../models/plans.server";
 import { ensureShopSetup } from "../models/shop.server";
 import { ensureStorefrontToken } from "../models/storefront-token.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { admin, session, redirect } = await authenticate.admin(request);
   const shop = await ensureShopSetup(admin, session.shop);
+  // A store without an active Appsy plan chooses one on Shopify's plan page first, from any
+  // page (models/plans.server.ts). Shopify sends it back with plan_handle, so it's asked about
+  // again then.
+  const plan = await currentPlan(
+    admin,
+    shop,
+    new URL(request.url).searchParams.has("plan_handle"),
+  );
+  if (!plan.access) {
+    return redirect(await planPageUrl(admin, session.shop), {
+      target: "_top",
+    });
+  }
   // Created the first time the store opens Appsy. If Shopify refuses, the admin still
   // loads (merchants must always be able to disconnect) and the next page load retries.
   await ensureStorefrontToken(admin, shop).catch((error) =>

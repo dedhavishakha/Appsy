@@ -25,16 +25,6 @@ export function PublicPage({ children }: { children: ReactNode }) {
   );
 }
 
-// Shown on legal pages until Scopegen's reviewed text replaces the draft.
-export function DraftNotice() {
-  return (
-    <p className={styles.draft}>
-      Draft for review. This text hasn&apos;t been approved yet and may change
-      before Appsy launches. Text in [brackets] is still to be filled in.
-    </p>
-  );
-}
-
 // A plain page of text in the legal pages' style, such as an app's account deletion page.
 export function PublicArticle({ children }: { children: ReactNode }) {
   return (
@@ -59,7 +49,6 @@ export function LegalDocument({
       <article className={styles.legal}>
         <h1>{title}</h1>
         <p className={styles.updated}>Last updated: {updated}</p>
-        <DraftNotice />
         {children}
       </article>
     </PublicPage>

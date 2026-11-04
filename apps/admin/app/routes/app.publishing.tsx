@@ -14,8 +14,14 @@ import type { BuildIntent, BuildResult } from "../models/builds";
 import { loadBuilds, startBuild, uploadAgain } from "../models/builds.server";
 import { loadIdentity, saveIdentity } from "../models/identity.server";
 import type { IdentityIssue } from "../models/identity";
-import { ACCOUNT_FEATURE, GA4_FEATURE, pushOn } from "@appsy/app-config";
+import {
+  ACCOUNT_FEATURE,
+  GA4_FEATURE,
+  pushOn,
+  upgradeFor,
+} from "@appsy/app-config";
 import { loadDesign } from "../models/design.server";
+import { notOnPlan, planAccessOf } from "../models/plan-access.server";
 import {
   loadFirebase,
   loadFirebaseIos,
@@ -86,6 +92,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // What the store's sign-in page offers besides the email code, for the App Review note.
   const signIns = accounts ? ((await socialLoginProviders(shop)) ?? []) : [];
   return {
+    // iPhone apps are on the Pro and Advanced plans (app-config plans.ts).
+    iphoneUpgrade: upgradeFor(planAccessOf(shop), "iphone"),
     identity,
     store,
     builds,
@@ -107,6 +115,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       : null,
   };
 };
+
+// Connecting the App Store, which plans without iPhone apps don't need.
+const APPLE_INTENTS: readonly string[] = [
+  "apple",
+  "apple-app",
+  "register-bundle",
+];
 
 // Each part of the page posts its own intent: "identity" for the name and icon, the
 // build ones for building and uploading, the others for the App ID and store accounts.
@@ -133,6 +148,13 @@ export const action = async ({
     );
   }
   if (intent !== "identity") {
+    const iphoneUpgrade = upgradeFor(planAccessOf(shop), "iphone");
+    if (iphoneUpgrade && APPLE_INTENTS.includes(intent)) {
+      return {
+        intent: intent as StoreIntent,
+        issues: [{ field: null, message: notOnPlan(iphoneUpgrade) }],
+      };
+    }
     return storeAction(
       intent as StoreIntent,
       shop.appProject.id,
@@ -279,6 +301,7 @@ const WAIT_TIMES = [
 
 export default function Publishing() {
   const {
+    iphoneUpgrade,
     identity,
     store,
     builds,
@@ -302,6 +325,7 @@ export default function Publishing() {
         appId={store.appId}
         suggestedAppId={store.suggestedAppId}
         accounts={store.accounts}
+        iphoneUpgrade={iphoneUpgrade}
       />
 
       <AppBuilds
@@ -309,6 +333,7 @@ export default function Publishing() {
         ios={builds.ios}
         rebuild={builds.rebuild}
         builds={builds.builds}
+        iphoneUpgrade={iphoneUpgrade}
       />
 
       <s-banner tone="info" heading="Start your developer accounts early">

@@ -27,6 +27,7 @@ import {
   SigningProblem,
   type IosSigningFiles,
 } from "./ios-signing.server";
+import { allows, planAccessForApp } from "./plan-access.server";
 import { publicUrl, readPublicFile } from "./storage.server";
 import { storeAccountsSchema } from "./store-accounts";
 import { getStoreKeys } from "./vault.server";
@@ -214,6 +215,15 @@ export async function startBuild(
   platform: Platform,
   createdBy: string | null,
 ): Promise<Result> {
+  // iPhone apps are on the Pro and Advanced plans (app-config plans.ts).
+  if (
+    platform === "ios" &&
+    !allows(await planAccessForApp(appProjectId), "iphone")
+  ) {
+    return issue(
+      "iPhone apps are on the Pro and Advanced plans. Change your Appsy plan under Settings to build one.",
+    );
+  }
   const ready = await readiness(appProjectId);
   const check = ready.readiness[platform];
   const appId = ready.appIds[platform];

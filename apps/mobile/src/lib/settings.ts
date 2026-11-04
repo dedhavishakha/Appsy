@@ -7,7 +7,9 @@ import { publishedSettingsSchema, type PublishedSettings } from "@appsy/app-conf
 // (docs/04, section 2).
 export const RUNTIME_VERSION = "1.0.0";
 
-type LivePointer = { version: number; url: string; minRuntime: string };
+// iosVersion: on Appsy plans without iPhone apps, the version iPhones stay on (admin
+// models/design.server.ts).
+type LivePointer = { version: number; url: string; minRuntime: string; iosVersion?: number };
 
 // Where the last downloaded design is kept on the phone.
 const SAVED_KEY = "appsy.settings";
@@ -41,9 +43,11 @@ export async function fetchSettings(): Promise<PublishedSettings> {
   }
   // Version files sit next to live.json (docs/04, section 4), so the app follows its own
   // address rather than the one stored in the file; a new file domain doesn't break it.
+  const version =
+    Platform.OS === "ios" && typeof live.iosVersion === "number" ? live.iosVersion : live.version;
   const versionUrl = /live\.json(\?.*)?$/.test(url)
-    ? url.replace(/live\.json(\?.*)?$/, `v/${live.version}.json`)
-    : live.url;
+    ? url.replace(/live\.json(\?.*)?$/, `v/${version}.json`)
+    : live.url.replace(/v\/\d+\.json$/, `v/${version}.json`);
   const settings = usable(await getJson(versionUrl));
   if (!settings) throw new Error("The app couldn't read its design.");
   // Kept on the phone, so the next start works even if Appsy can't be reached.

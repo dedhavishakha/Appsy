@@ -4,7 +4,7 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { useFetcher, useLoaderData, useNavigate } from "react-router";
+import { redirect, useFetcher, useLoaderData, useNavigate } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { z } from "zod";
@@ -18,11 +18,13 @@ import {
   PUSH_TITLE_MAX,
   pushAutomationInput,
   pushOn,
+  upgradeFor,
   type AutomationImageMode,
   type AutomationKind,
   type ImageValue,
 } from "@appsy/app-config";
 import { authenticate } from "../shopify.server";
+import { notOnPlan, planAccessOf } from "../models/plan-access.server";
 import { ensureShopSetup } from "../models/shop.server";
 import { loadDesign } from "../models/design.server";
 import {
@@ -48,6 +50,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { admin, session, scopes } = await authenticate.admin(request);
   const shop = await ensureShopSetup(admin, session.shop);
   const appProjectId = shop.appProject.id;
+  // Automatic notifications are on the Pro and Advanced plans; the Push notifications page
+  // says so.
+  if (upgradeFor(planAccessOf(shop), "automations"))
+    throw redirect("/app/push");
   const id = params.id === "new" ? null : z.uuid().safeParse(params.id);
   if (id && !id.success) throw new Response("Not found", { status: 404 });
   const [automation, design, keys, granted] = await Promise.all([
@@ -103,6 +109,8 @@ export const action = async ({
   }
 
   const kind = intent === "test" ? "test" : "save";
+  const upgrade = upgradeFor(planAccessOf(shop), "automations");
+  if (upgrade) return { intent: kind, errors: [notOnPlan(upgrade)] };
   let raw: unknown = null;
   try {
     raw = JSON.parse(String(form.get("automation")));

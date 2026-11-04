@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   ACCOUNT_FEATURE,
   BAG_REMINDER_DEFAULTS,
+  bagReminderOf,
   createCatalog,
   createDefaultDesign,
+  designForPlan,
   setAccountClientId,
   setPushSettings,
   setSizeChartSettings,
@@ -89,6 +91,56 @@ describe("feature manifests", () => {
 
     const broken = switchAppCodes(design, true, "k7q2");
     expect(validateDesign(broken, catalog).success).toBe(false);
+  });
+
+  // What phones get on each plan (app-config plans.ts): locked features go, with their tabs,
+  // while the design the merchant edits keeps them.
+  it("leave out what a store's plan doesn't include", () => {
+    const everything = switchAppCodes(
+      setPushSettings(
+        switchFeature(
+          switchFeature(
+            setAccountClientId(createDefaultDesign({ defaultCountry: "IN" }), "8c0e2f6a-1b2c-4d3e"),
+            ACCOUNT_FEATURE,
+            true,
+          ),
+          "push-notifications",
+          true,
+        ),
+        { bagReminder: BAG_REMINDER_DEFAULTS },
+      ),
+      true,
+      "K7Q2",
+    );
+    const design = {
+      ...everything,
+      markets: { ...everything.markets, displayCurrencyConversion: true },
+    };
+
+    const standard = designForPlan(design, "standard", catalog);
+    expect(validateDesign(standard, catalog).success).toBe(true);
+    expect(standard.features[ACCOUNT_FEATURE]?.enabled).toBe(false);
+    expect(standard.features["app-only-codes"]).toEqual({
+      enabled: false,
+      settings: { start: "K7Q2" },
+    });
+    expect(standard.navigation.tabs).not.toContain("account");
+    expect(standard.markets.displayCurrencyConversion).toBe(false);
+    expect(bagReminderOf(standard)).toBeNull();
+    expect(standard.features["push-notifications"]?.enabled).toBe(true);
+    expect(standard.features.wishlist?.enabled).toBe(true);
+
+    const pro = designForPlan(design, "pro", catalog);
+    expect(pro.features[ACCOUNT_FEATURE]?.enabled).toBe(false);
+    expect(pro.features["app-only-codes"]?.enabled).toBe(true);
+    expect(pro.markets.displayCurrencyConversion).toBe(true);
+    expect(bagReminderOf(pro)).toEqual(BAG_REMINDER_DEFAULTS);
+
+    expect(designForPlan(design, "advanced", catalog)).toEqual(design);
+    expect(designForPlan(design, "unlimited", catalog)).toBe(design);
+    // Nothing locked is on: the design stays as it is.
+    const plain = createDefaultDesign({ defaultCountry: "IN" });
+    expect(designForPlan(plain, "standard", catalog)).toEqual(plain);
   });
 
   // The whole catalog, as the editor has it: the default Product, Collection and Menu pages

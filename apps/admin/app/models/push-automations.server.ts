@@ -24,6 +24,7 @@ import {
 } from "@appsy/app-config";
 import db from "../db.server";
 import { applySetting, loadDesign } from "./design.server";
+import { allows, planAccessOf } from "./plan-access.server";
 import type { ShopSetup } from "./shop.server";
 import {
   notSent,
@@ -797,12 +798,15 @@ async function runForApp(
           shopDomain: true,
           storefrontToken: true,
           uninstalledAt: true,
+          plan: true,
         },
       },
     },
   });
   if (!project || project.shop.uninstalledAt || !project.shop.storefrontToken)
     return;
+  // On the Pro and Advanced plans (app-config plans.ts); they wait, switched on, otherwise.
+  if (!allows(planAccessOf(project.shop), "automations")) return;
   const store: Store = {
     domain: project.shop.shopDomain,
     token: project.shop.storefrontToken,

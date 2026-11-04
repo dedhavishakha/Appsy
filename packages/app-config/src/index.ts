@@ -8,6 +8,7 @@ export * from "./ga4";
 export * from "./push";
 export * from "./push-automations";
 export * from "./app-releases";
+export * from "./plans";
 export * from "./fields";
 export * from "./inputs";
 export * from "./design";

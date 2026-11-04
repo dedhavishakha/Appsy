@@ -10,6 +10,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
   ACCOUNT_FEATURE,
   accountCallbackUrl,
+  APP_CODES_FEATURE,
   appCodeStart,
   customerAccountClientId,
   GA4_FEATURE,
@@ -27,14 +28,23 @@ import {
   sizeChartSettings,
   switchAppCodes,
   switchFeature,
+  upgradeFor,
   withoutSizeChart,
   type AppDesign,
   type DesignIssue,
+  type PlanAccess,
+  type PlanHandle,
   type SizeChartMatch,
   type SizeChartRule,
   type SizeChartSettings,
 } from "@appsy/app-config";
 import { authenticate } from "../shopify.server";
+import { PlanNote } from "../components/plan-note";
+import {
+  notOnPlan,
+  planAccessOf,
+  upgradeForFeature,
+} from "../models/plan-access.server";
 import { ensureShopSetup } from "../models/shop.server";
 import { applySetting, loadDesign } from "../models/design.server";
 import {
@@ -220,7 +230,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const accounts = storeAccountsSchema.safeParse(
     shop.appProject.storeAccounts ?? {},
   );
+  // What the store's plan doesn't include shows the plan to move up to (app-config plans.ts).
+  const access = planAccessOf(shop);
   return {
+    upgrades: {
+      appCodes: upgradeForFeature(access, APP_CODES_FEATURE),
+      accounts: upgradeForFeature(access, ACCOUNT_FEATURE),
+      currency: upgradeFor(access, "currency"),
+      iphone: upgradeFor(access, "iphone"),
+    },
     codeStart,
     discountsAccess,
     appCodes,
@@ -259,6 +277,32 @@ function parseJson(value: string): unknown {
     return JSON.parse(value);
   } catch {
     return null;
+  }
+}
+
+// Switching on, or setting up, something the store's plan doesn't include: the plan to move
+// up to. Switching off always works.
+function planUpgrade(
+  setting: SettingName,
+  on: boolean,
+  access: PlanAccess | null,
+): PlanHandle | null {
+  switch (setting) {
+    case "appCodes":
+      return on ? upgradeForFeature(access, APP_CODES_FEATURE) : null;
+    case "newCodeStart":
+      return upgradeForFeature(access, APP_CODES_FEATURE);
+    case "accounts":
+      return on ? upgradeForFeature(access, ACCOUNT_FEATURE) : null;
+    case "accountClientId":
+      return upgradeForFeature(access, ACCOUNT_FEATURE);
+    case "currencyConversion":
+      return on ? upgradeFor(access, "currency") : null;
+    case "uploadGoogleServicesIos":
+    case "uploadApnsKey":
+      return upgradeFor(access, "iphone");
+    default:
+      return null;
   }
 }
 
@@ -369,6 +413,15 @@ export const action = async ({
       on,
     };
   }
+  const upgrade = planUpgrade(setting as SettingName, on, planAccessOf(shop));
+  if (upgrade) {
+    return {
+      setting,
+      issues: [{ path: [], message: notOnPlan(upgrade) }],
+      live: false,
+      on,
+    };
+  }
   // The merchant's Firebase files, kept on the app and reaching phones with the next build,
   // and their push notification keys, kept in the vault for sending campaigns.
   if (FILE_CHANGES.includes(setting)) {
@@ -448,6 +501,7 @@ export const action = async ({
 
 export default function Functionality() {
   const {
+    upgrades,
     codeStart,
     discountsAccess,
     appCodes,
@@ -477,6 +531,7 @@ export default function Functionality() {
           label="App-only discount codes"
           details="Discount codes that work in your app, but not on your website."
           checked={codeStart !== null}
+          upgrade={upgrades.appCodes}
         >
           {codeStart && (
             <AppCodes
@@ -517,6 +572,7 @@ export default function Functionality() {
               appId={appId}
               connection={firebase}
               iosConnection={firebaseIos}
+              iphoneUpgrade={upgrades.iphone}
             />
           )}
         </SettingSwitch>
@@ -536,6 +592,7 @@ export default function Functionality() {
               keys={pushKeys ?? { firebase: null, apple: null }}
               appleTeamId={appleTeamId}
               googleAnalytics={googleAnalytics}
+              iphoneUpgrade={upgrades.iphone}
             />
           )}
         </SettingSwitch>
@@ -547,6 +604,7 @@ export default function Functionality() {
           label="Shopper accounts"
           details="Shoppers sign in with your store's Shopify customer account, and see their orders, addresses and profile in an Account tab. Checkout knows who they are."
           checked={shopperAccounts.on}
+          upgrade={upgrades.accounts}
         >
           <ShopperAccounts {...shopperAccounts} />
         </SettingSwitch>
@@ -571,6 +629,7 @@ export default function Functionality() {
           label="Currency conversion"
           details="Shoppers can pick any currency, and prices are converted for display with daily exchange rates. Checkout still charges each market's currency, and the app's bag says so."
           checked={currencyConversion}
+          upgrade={upgrades.currency}
         >
           <s-paragraph color="subdued">
             Prices always come from Shopify: each market&apos;s own price, as on
@@ -855,10 +914,13 @@ function GoogleAnalytics({
   appId,
   connection,
   iosConnection,
+  iphoneUpgrade,
 }: {
   appId: string | null;
   connection: FirebaseConnection | null;
   iosConnection: FirebaseIosConnection | null;
+  // The plan with iPhone apps, when the store's plan has none.
+  iphoneUpgrade: PlanHandle | null;
 }) {
   const shopify = useAppBridge();
   const fetcher = useFetcher<typeof action>();
@@ -937,7 +999,11 @@ function GoogleAnalytics({
       />
 
       <s-heading>iPhone</s-heading>
-      {iosConnection ? (
+      {iphoneUpgrade ? (
+        <PlanNote plan={iphoneUpgrade}>
+          <s-paragraph>Your plan includes the Android app.</s-paragraph>
+        </PlanNote>
+      ) : iosConnection ? (
         <s-stack gap="small">
           <s-paragraph>
             Connected to the Firebase project{" "}
@@ -990,11 +1056,13 @@ function GoogleAnalytics({
           <s-list-item>Upload it below.</s-list-item>
         </s-ordered-list>
       )}
-      <GoogleServicesPlistDrop
-        replace={iosConnection !== null}
-        disabled={busy}
-        onText={(text) => submit("uploadGoogleServicesIos", text)}
-      />
+      {!iphoneUpgrade && (
+        <GoogleServicesPlistDrop
+          replace={iosConnection !== null}
+          disabled={busy}
+          onText={(text) => submit("uploadGoogleServicesIos", text)}
+        />
+      )}
 
       <s-paragraph color="subdued">
         Your app sends Google Analytics its product views, collection views, add
@@ -1127,12 +1195,15 @@ function PushNotifications({
   keys,
   appleTeamId,
   googleAnalytics,
+  iphoneUpgrade,
 }: {
   appId: string | null;
   firebase: FirebaseConnection | null;
   keys: PushKeys;
   appleTeamId: string | null;
   googleAnalytics: boolean;
+  // The plan with iPhone apps, when the store's plan has none.
+  iphoneUpgrade: PlanHandle | null;
 }) {
   const shopify = useAppBridge();
   const fetcher = useFetcher<typeof action>();
@@ -1266,16 +1337,22 @@ function PushNotifications({
 
       <s-divider />
       <s-heading>iPhone: your APNs key</s-heading>
-      <ApnsKey
-        // A new key empties the form.
-        key={keys.apple?.checkedAt ?? "none"}
-        appId={appId}
-        appleTeamId={appleTeamId}
-        status={keys.apple}
-        busy={busy}
-        onConnect={(keyId, text) => submit("uploadApnsKey", text, { keyId })}
-        onRemove={() => submit("removeApnsKey")}
-      />
+      {iphoneUpgrade ? (
+        <PlanNote plan={iphoneUpgrade}>
+          <s-paragraph>Your plan includes the Android app.</s-paragraph>
+        </PlanNote>
+      ) : (
+        <ApnsKey
+          // A new key empties the form.
+          key={keys.apple?.checkedAt ?? "none"}
+          appId={appId}
+          appleTeamId={appleTeamId}
+          status={keys.apple}
+          busy={busy}
+          onConnect={(keyId, text) => submit("uploadApnsKey", text, { keyId })}
+          onRemove={() => submit("removeApnsKey")}
+        />
+      )}
 
       {(keys.firebase || keys.apple) && (
         <s-stack direction="inline">
@@ -2006,12 +2083,14 @@ function SignInOptions({ handles }: { handles: string[] }) {
 }
 
 // One switch. It applies at once, as Polaris says switches should; if Shopify or Appsy
-// refused, it goes back and says why.
+// refused, it goes back and says why. A feature the store's plan doesn't include shows off,
+// with the plans that have it, in place of its settings.
 function SettingSwitch({
   setting,
   label,
   details,
   checked,
+  upgrade = null,
   children,
 }: {
   setting: Extract<
@@ -2027,6 +2106,8 @@ function SettingSwitch({
   label: string;
   details: string;
   checked: boolean;
+  // The plan to move up to, when the store's plan doesn't include it.
+  upgrade?: PlanHandle | null;
   children?: ReactNode;
 }) {
   const fetcher = useFetcher<typeof action>();
@@ -2052,6 +2133,15 @@ function SettingSwitch({
     setOn(next);
     fetcher.submit({ setting, value: next ? "on" : "off" }, { method: "POST" });
   };
+
+  if (upgrade) {
+    return (
+      <s-stack gap="base">
+        <s-switch label={label} details={details} disabled />
+        <PlanNote plan={upgrade} />
+      </s-stack>
+    );
+  }
 
   return (
     <s-stack gap="base">
