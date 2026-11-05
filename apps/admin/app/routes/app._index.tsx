@@ -56,6 +56,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     week,
     rebuild,
     androidPackage: shop.appProject.androidPackage,
+    // Shopify's bulk editor for products, at the address Shopify's Help Center gives
+    // (admin.shopify.com/store/STORENAME/bulk?…&resource_name=Product).
+    bulkEditorUrl: `https://admin.shopify.com/store/${encodeURIComponent(session.shop.replace(".myshopify.com", ""))}/bulk?resource_name=Product`,
   };
 };
 
@@ -87,7 +90,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function Home() {
-  const { channel, week, rebuild, androidPackage } =
+  const { channel, week, rebuild, androidPackage, bulkEditorUrl } =
     useLoaderData<typeof loader>();
   const planEndsAt = usePlanEndsAt();
   const outdated = (["android", "ios"] as const).filter(
@@ -351,6 +354,17 @@ export default function Home() {
                   <s-link href="shopify://admin/products">
                     Manage products
                   </s-link>
+                  {/* Shopify's bulk editor, at the address Shopify's Help Center gives for it
+                      (help.shopify.com/en/manual/online-store/storefront-search/managing-searchability),
+                      opened in the admin itself; then the Help Center's own steps for only the
+                      app's products (5.7.4). */}
+                  <s-link href={bulkEditorUrl} target="_top">
+                    Edit products in bulk
+                  </s-link>
+                  <s-paragraph color="subdued">
+                    To edit only your app&apos;s products, filter Products by
+                    the Appsy sales channel, select them, then click Bulk edit.
+                  </s-paragraph>
                   {androidPackage ? (
                     <s-paragraph>
                       Shoppers find your products in your app on Google Play
