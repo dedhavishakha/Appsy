@@ -30,6 +30,10 @@ const ACTIVE_SUBSCRIPTION_QUERY = `#graphql
   query AppsyActiveSubscription($appId: ID!, $shopId: ID!) {
     activeSubscription(appId: $appId, shopId: $shopId) {
       trialEndsAt
+      cancelAtEndOfCycle
+      currentBillingCycle {
+        endTime
+      }
       items {
         handle
       }
@@ -38,10 +42,25 @@ const ACTIVE_SUBSCRIPTION_QUERY = `#graphql
 
 type ActiveSubscription = {
   trialEndsAt: string | null;
+  // The plan was cancelled (an uninstall cancels it) and stays until its period ends: the end
+  // of the trial, or of the current billing cycle (null during a trial).
+  cancelAtEndOfCycle?: boolean | null;
+  currentBillingCycle?: { endTime: string | null } | null;
   items: { handle: string }[];
 };
 
-type Subscription = { plan: PlanHandle; trialEndsAt: Date | null };
+type Subscription = {
+  plan: PlanHandle;
+  trialEndsAt: Date | null;
+  endsAt: Date | null;
+};
+
+// A date from the Partner API, or null when there's none or it can't be read.
+function dateFrom(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
 
 // The store's subscription, or null when it has none. Throws when the Partner API fails or
 // is busy, so a paying store is never sent to the plan page by mistake.
@@ -83,11 +102,14 @@ async function activeSubscription(
       `Plan handles ${handles.join(", ")} name no Appsy plan; treated as Advanced.`,
     );
   }
+  const trialEndsAt = dateFrom(subscription.trialEndsAt);
   return {
     plan: plan ?? "advanced",
-    trialEndsAt: subscription.trialEndsAt
-      ? new Date(subscription.trialEndsAt)
-      : null,
+    trialEndsAt,
+    endsAt:
+      subscription.cancelAtEndOfCycle === true
+        ? (dateFrom(subscription.currentBillingCycle?.endTime) ?? trialEndsAt)
+        : null,
   };
 }
 
@@ -99,6 +121,7 @@ async function savePlan(shopId: string, subscription: Subscription | null) {
     data: {
       plan: subscription?.plan ?? null,
       planTrialEndsAt: subscription?.trialEndsAt ?? null,
+      planEndsAt: subscription?.endsAt ?? null,
       planCheckedAt: subscription ? new Date() : null,
     },
   });
@@ -111,6 +134,8 @@ const accessBefore = (shop: { plan: string | null }): PlanAccess =>
 export type StorePlan = {
   access: PlanAccess | null;
   trialEndsAt: string | null;
+  // When Shopify will end the plan, if it's been cancelled (see ActiveSubscription).
+  endsAt: string | null;
 };
 
 // The store's plan when Appsy opens (routes/app.tsx): saved for up to 5 minutes, or asked
@@ -121,16 +146,19 @@ export async function currentPlan(
   shop: ShopSetup,
   fresh: boolean,
 ): Promise<StorePlan> {
-  if (!billingOn()) return { access: "unlimited", trialEndsAt: null };
+  if (!billingOn()) {
+    return { access: "unlimited", trialEndsAt: null, endsAt: null };
+  }
   const saved = savedPlan(shop.plan);
   const trialEndsAt = shop.planTrialEndsAt?.toISOString() ?? null;
+  const endsAt = shop.planEndsAt?.toISOString() ?? null;
   if (
     !fresh &&
     saved &&
     shop.planCheckedAt &&
     Date.now() - shop.planCheckedAt.getTime() < CONFIRMED_FOR_MS
   ) {
-    return { access: saved, trialEndsAt };
+    return { access: saved, trialEndsAt, endsAt };
   }
   let subscription: Subscription | null;
   try {
@@ -138,7 +166,7 @@ export async function currentPlan(
   } catch (error) {
     if (!saved) throw error;
     console.error(`Plan check for ${shop.shopDomain}:`, error);
-    return { access: saved, trialEndsAt };
+    return { access: saved, trialEndsAt, endsAt };
   }
   await savePlan(shop.id, subscription);
   if (subscription && subscription.plan !== saved) {
@@ -152,6 +180,7 @@ export async function currentPlan(
   return {
     access: subscription?.plan ?? null,
     trialEndsAt: subscription?.trialEndsAt?.toISOString() ?? null,
+    endsAt: subscription?.endsAt?.toISOString() ?? null,
   };
 }
 
@@ -223,11 +252,17 @@ async function checkAllPlans() {
   }
 }
 
-// The store's plan for pages that show it (Settings), without asking Shopify again.
+// The store's plan for pages that show it (Home, Settings), without asking Shopify again.
 export function savedStorePlan(shop: ShopSetup): StorePlan {
+  const access = planAccessOf(shop);
   return {
-    access: planAccessOf(shop),
+    access,
     trialEndsAt: shop.planTrialEndsAt?.toISOString() ?? null,
+    // Only a real plan can be ending; "unlimited" (billing not set up) never is.
+    endsAt:
+      access && access !== "unlimited"
+        ? (shop.planEndsAt?.toISOString() ?? null)
+        : null,
   };
 }
 

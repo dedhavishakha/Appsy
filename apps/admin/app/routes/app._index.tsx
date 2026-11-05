@@ -14,6 +14,7 @@ import {
   MetricsCard,
   percentChange,
 } from "../components/metrics-card";
+import { PlanEnding, usePlanEndsAt } from "../components/plan-note";
 import { authenticate } from "../shopify.server";
 import { hasOrdersAccess, loadReport } from "../models/analytics.server";
 import { appRebuildReasons } from "../models/build-contents.server";
@@ -88,6 +89,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 export default function Home() {
   const { channel, week, rebuild, androidPackage } =
     useLoaderData<typeof loader>();
+  const planEndsAt = usePlanEndsAt();
   const outdated = (["android", "ios"] as const).filter(
     (platform) => rebuild[platform].length > 0,
   );
@@ -123,6 +125,8 @@ export default function Home() {
 
   return (
     <s-page heading="Appsy">
+      {planEndsAt && <PlanEnding endsAt={planEndsAt} />}
+
       {errors.length > 0 && (
         <s-banner tone="critical" heading="Appsy couldn't finish that">
           {errors.map((message) => (

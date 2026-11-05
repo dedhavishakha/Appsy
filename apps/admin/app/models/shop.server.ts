@@ -63,6 +63,7 @@ export async function ensureShopSetup(
               storefrontToken: null,
               plan: null,
               planTrialEndsAt: null,
+              planEndsAt: null,
               planCheckedAt: null,
             }
           : {},

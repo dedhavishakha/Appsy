@@ -35,6 +35,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     apiKey: process.env.SHOPIFY_API_KEY || "",
     // Where "Change plan" goes (components/plan-note.tsx, Settings).
     plansHref: await planPageHref(admin),
+    // Set when Shopify will end the store's plan, for example after a reinstall (Home's notice).
+    planEndsAt: plan.endsAt,
   };
 };
 

@@ -80,6 +80,9 @@ model Shop {
   // every few minutes, and once a day; cleared on a reinstall.
   plan               String?
   planTrialEndsAt    DateTime?
+  // When Shopify will end the plan (it was cancelled, for example by an uninstall, and stays
+  // until the end of its period): Home and Settings ask the store to choose a plan again.
+  planEndsAt         DateTime?
   planCheckedAt      DateTime?
   installedAt        DateTime     @default(now())
   uninstalledAt      DateTime?

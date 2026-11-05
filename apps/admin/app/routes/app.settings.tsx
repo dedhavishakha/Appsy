@@ -3,7 +3,7 @@ import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { hasPerk, planOf } from "@appsy/app-config";
 import { authenticate } from "../shopify.server";
-import { usePlansHref } from "../components/plan-note";
+import { planDate, usePlansHref } from "../components/plan-note";
 import { savedStorePlan } from "../models/plans.server";
 import { ensureShopSetup } from "../models/shop.server";
 
@@ -13,7 +13,7 @@ import { ensureShopSetup } from "../models/shop.server";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const shop = await ensureShopSetup(admin, session.shop);
-  const { access, trialEndsAt } = savedStorePlan(shop);
+  const { access, trialEndsAt, endsAt } = savedStorePlan(shop);
   // Shopify shows the plans and bills the store (models/plans.server.ts); while billing isn't
   // set up there's no plan to show.
   const plan = access && access !== "unlimited" ? planOf(access) : null;
@@ -28,6 +28,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       name: plan.name,
       monthlyUsd: plan.monthlyUsd,
       trialEndsAt,
+      endsAt,
     },
     support: dedicated
       ? { contact: dedicated, dedicated: true }
@@ -36,14 +37,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         : null,
   };
 };
-
-const dateOf = (iso: string) =>
-  new Date(iso).toLocaleDateString("en", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
 
 export default function Settings() {
   const { plan, support } = useLoaderData<typeof loader>();
@@ -58,14 +51,23 @@ export default function Settings() {
               <s-text type="strong">{plan.name}</s-text>, {plan.monthlyUsd} USD
               a month, billed by Shopify.
             </s-paragraph>
-            {plan.trialEndsAt && (
+            {plan.endsAt ? (
               <s-paragraph>
-                Your free trial ends on {dateOf(plan.trialEndsAt)}.
+                Your plan ends on {planDate(plan.endsAt)}. Choose a plan to keep
+                using Appsy after that date.
               </s-paragraph>
+            ) : (
+              plan.trialEndsAt && (
+                <s-paragraph>
+                  Your free trial ends on {planDate(plan.trialEndsAt)}.
+                </s-paragraph>
+              )
             )}
             {plansHref && (
               <s-stack direction="inline">
-                <s-button href={plansHref}>Change plan</s-button>
+                <s-button href={plansHref}>
+                  {plan.endsAt ? "Choose plan" : "Change plan"}
+                </s-button>
               </s-stack>
             )}
           </s-stack>
